@@ -1,0 +1,12 @@
+**/.git
+**/.venv
+**/node_modules
+**/cdk.out
+**/__pycache__
+**/*.pyc
+backend/typecast.db
+backend/uploads
+deploy/node_modules
+frontend/dist
+*.db
+.env

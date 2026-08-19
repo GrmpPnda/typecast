@@ -1,0 +1,18 @@
+name: "Hardback 8.5x11"
+format: pdf
+page_width: "8.5in"
+page_height: "11in"
+margins:
+  top: "1in"
+  bottom: "1in"
+  inner: "1.25in"
+  outer: "0.875in"
+font_family: "Garamond, serif"
+font_size: "12pt"
+line_height: 1.6
+header_footer: true
+page_numbers:
+  start_at: "chapter_1"
+  odd_position: "bottom-right"
+  even_position: "bottom-left"
+include_cover: true

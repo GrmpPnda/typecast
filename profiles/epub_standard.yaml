@@ -1,0 +1,7 @@
+name: "Standard ePub"
+format: epub
+font_family: "Georgia, serif"
+font_size: "1em"
+include_cover: true
+include_toc: true
+compression: "standard"

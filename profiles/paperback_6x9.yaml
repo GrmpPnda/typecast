@@ -1,0 +1,18 @@
+name: "Paperback 6x9"
+format: pdf
+page_width: "6in"
+page_height: "9in"
+margins:
+  top: "0.75in"
+  bottom: "0.75in"
+  inner: "0.875in"
+  outer: "0.625in"
+font_family: "Garamond, serif"
+font_size: "11pt"
+line_height: 1.5
+header_footer: true
+page_numbers:
+  start_at: "chapter_1"
+  odd_position: "bottom-right"
+  even_position: "bottom-left"
+include_cover: true

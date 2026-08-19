@@ -1,0 +1,65 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./profiles:/app/profiles
+      - typecast-data:/app/data
+    env_file:
+      - .env
+    environment:
+      # Must match the typecast-data mount above. Set here as well as in the
+      # Dockerfile so an override in .env cannot separate the data from its volume.
+      TYPECAST_DATA_DIR: /app/data
+    networks:
+      - typecast-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - typecast-net
+
+  # Uncomment below to use PostgreSQL instead of SQLite.
+  # Update DATABASE_URL in .env to: postgresql+asyncpg://typecast:typecast@db:5432/typecast
+  #
+  # db:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_USER: typecast
+  #     POSTGRES_PASSWORD: typecast
+  #     POSTGRES_DB: typecast
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+  #   networks:
+  #     - typecast-net
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U typecast"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+networks:
+  typecast-net:
+    driver: bridge
+
+volumes:
+  typecast-data:
+#   pgdata:

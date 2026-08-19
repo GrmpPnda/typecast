@@ -1,0 +1,117 @@
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# ---------------------------------------------------------------------------
+# Node
+# ---------------------------------------------------------------------------
+node_modules/
+.npm
+.eslintcache
+*.tsbuildinfo
+
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
+dist/
+build/
+frontend/dist/
+
+# ---------------------------------------------------------------------------
+# AWS CDK deployment stack — deliberately unpublished
+# ---------------------------------------------------------------------------
+# The stack fronts the app with a public ALB (publicLoadBalancer: true) but sets
+# neither TYPECAST_AUTH_MODE nor TYPECAST_NO_AUTOLOGIN. Both default to local
+# mode, so app/api/deps.py returns the local user for every request and anyone
+# who finds the ALB hostname reads and writes the manuscripts. SECRET_KEY is also
+# a hardcoded literal, which would be public along with the rest of the source,
+# making tokens forgeable and the stored AI keys decryptable.
+#
+# Publish this only after: TYPECAST_AUTH_MODE=multi, SECRET_KEY injected from
+# Secrets Manager, and the internet-facing listener documented.
+deploy/
+
+# ---------------------------------------------------------------------------
+# User data — never commit a manuscript or its media
+# ---------------------------------------------------------------------------
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+backend/uploads/
+uploads/
+content/
+codex/
+typecast-backup-*.zip
+
+# Documentation screenshots are app content, not user data. This exception has
+# to come after the rules above: "uploads/" and "codex/" match at any depth.
+!docs/images/
+!docs/images/**
+
+# ---------------------------------------------------------------------------
+# Secrets and local configuration
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.certs/
+docker-compose.override.yml
+
+# ---------------------------------------------------------------------------
+# AI assistant working files — local to the author, not part of the app
+# ---------------------------------------------------------------------------
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+GEMINI.md
+.claude/
+.cursor/
+.cursorrules
+.aider*
+.windsurfrules
+.continue/
+.github/copilot-instructions.md
+.aim/
+
+# ---------------------------------------------------------------------------
+# Editor and OS
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ---------------------------------------------------------------------------
+# Logs and scratch
+# ---------------------------------------------------------------------------
+*.log
+logs/
+
+# Cached AWS Bedrock inference-profile listing, fetched by the Settings page's
+# "Refresh from AWS" button. Account-specific, so not shared.
+inference.json
+
+# Scratch config used to point a throwaway Vite server at a demo backend.
+vite.*.config.ts
+!vite.config.ts
