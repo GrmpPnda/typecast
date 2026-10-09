@@ -106,7 +106,7 @@ sudo apt install libpango-1.0-0 libpangoft2-1.0-0 libcairo2 libgdk-pixbuf-2.0-0
 cd backend
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"   # omit [dev] to skip pytest and ruff
+pip install -c requirements.lock -e ".[dev]"   # omit [dev] to skip pytest and ruff
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -365,9 +365,11 @@ cd frontend && npm run lint
 # Lint backend
 cd backend && .venv/bin/python -m ruff check app/
 
-# Run backend tests (610 tests)
+# Run backend tests (657 tests)
 cd backend && .venv/bin/python -m pytest
 ```
+
+Dependencies are pinned in `backend/requirements.lock`, which CI, the container images, and the commands above all install, so everything runs the versions the tests ran against. To take upgrades, run `backend/scripts/lock-deps.sh`: it resolves fresh versions in a clean Linux container and replaces the lock only if the full suite passes.
 
 Invoke the backend tools as `.venv/bin/python -m <tool>` rather than `.venv/bin/pytest`. Console scripts carry an absolute shebang from wherever the virtualenv was first created, so they fail with `bad interpreter` if the project directory is ever moved. The module form does not. If you hit that error, either recreate the virtualenv or rewrite the shebangs in `.venv/bin/` and the `VIRTUAL_ENV` assignments in `.venv/bin/activate`.
 

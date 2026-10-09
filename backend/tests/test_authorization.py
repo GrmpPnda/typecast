@@ -45,6 +45,7 @@ from app.models.series import Series
 from app.models.user import User
 from app.models.work import Work
 from app.services.auth import hash_password
+from tests.routes import api_routes
 
 # --- policy --------------------------------------------------------------------------
 
@@ -74,12 +75,9 @@ SHARED_PARAMS = ownership.NOT_OWNED_PARAMS  # install-wide resources and account
 
 
 def _api_routes():
-    app = create_app()
-    for route in app.routes:
-        path = getattr(route, "path", "")
-        if path.startswith("/api") and getattr(route, "methods", None):
-            for method in sorted(route.methods - {"HEAD", "OPTIONS"}):
-                yield method, path, route
+    for method, path, route in api_routes(create_app()):
+        if path.startswith("/api"):
+            yield method, path, route
 
 
 def _calls(route) -> set:
@@ -143,6 +141,14 @@ def test_the_policy_names_only_routes_that_exist():
     """A stale allowlist entry would hide a renamed, unprotected route."""
     existing = {(m, p) for m, p, _ in ROUTES}
     assert PUBLIC <= existing, sorted(PUBLIC - existing)
+
+
+def test_the_route_table_is_actually_populated():
+    """Every check above is generated from ROUTES. If walking the app ever
+    returns only the routes defined directly on it, as iterating app.routes does
+    on FastAPI 0.143, they all pass vacuously."""
+    assert len(ROUTES) > 100, f"only {len(ROUTES)} routes found; the walker is broken"
+    assert any(p.startswith("/api/works/{work_id}") for _, p, _ in ROUTES)
 
 
 # --- 3: dynamic, two accounts --------------------------------------------------------
@@ -246,18 +252,31 @@ async def test_another_account_cannot_reach_your_resources(session_factory, two_
     )
 
 
-READ_ROUTES = [(m, p) for m, p in OWNED_ROUTES if m == "GET" and "narrate" not in p
-               and "export" not in p]
+# Streaming and rendering endpoints need real content to do anything; everything
+# else must at least get past the ownership check for the owner.
+OWNER_ROUTES = [(m, p) for m, p in OWNED_ROUTES if "narrate" not in p and "export" not in p]
 
 
-@pytest.mark.parametrize(("method", "path"), READ_ROUTES, ids=_ids(READ_ROUTES))
+@pytest.mark.parametrize(("method", "path"), OWNER_ROUTES, ids=_ids(OWNER_ROUTES))
 async def test_the_owner_still_gets_through(session_factory, two_accounts, method, path):
-    """The checks must not lock out the person who owns the resource."""
+    """The checks must not lock out the person who owns the resource.
+
+    Every method, not only GET: on FastAPI 0.143 the codex-image routes (PATCH
+    and DELETE) refused their own owner, and a GET-only check could not see it.
+    An empty body earns a 422 from validation, which is fine; a 404 means the
+    ownership check refused the owner.
+    """
     alice, _bob, ids = two_accounts
     async with _client_as(session_factory, alice) as ac:
         resp = await ac.request(method, _fill(path, ids))
-    assert resp.status_code != 404, f"{method} {path} hid the owner's own resource"
-    assert resp.status_code < 500, f"{method} {path}: {resp.status_code} {resp.text[:200]}"
+    assert resp.status_code != 404, (
+        f"{method} {path} hid the owner's own resource: {resp.text[:200]}"
+    )
+    # 502 is an upstream service (the AI provider has no key in tests) failing
+    # after the request was let through, which is what this test is about.
+    assert resp.status_code < 500 or resp.status_code == 502, (
+        f"{method} {path}: {resp.status_code} {resp.text[:200]}"
+    )
 
 
 ADMIN_ROUTES = [(m, p) for m, p, _ in ROUTES if _is_admin_only(m, p)]

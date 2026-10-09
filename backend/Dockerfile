@@ -7,8 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml ./
-RUN pip install --no-cache-dir --prefix=/install .
+COPY pyproject.toml requirements.lock ./
+# The lock pins every version to what the test suite ran against.
+RUN pip install --no-cache-dir --prefix=/install -c requirements.lock .
 
 # Stage 2: Runtime
 FROM python:3.12-slim

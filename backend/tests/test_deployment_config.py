@@ -20,6 +20,7 @@ import yaml
 
 from app.config import Settings
 from app.main import create_app
+from tests.routes import api_routes, mounted_paths
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
@@ -43,7 +44,7 @@ def _dockerfile_env(path: Path) -> dict[str, str]:
 
 
 def _app_route_paths() -> set[str]:
-    return {route.path for route in create_app().routes if hasattr(route, "path")}
+    return {path for _method, path, _route in api_routes(create_app())}
 
 
 def _healthcheck_paths(text: str) -> list[str]:
@@ -109,12 +110,7 @@ def test_nginx_proxies_every_path_the_backend_serves():
     nginx = (REPO_ROOT / "frontend" / "nginx.conf").read_text()
     proxied = set(re.findall(r"location\s+(/[a-z]+)/\s*\{[^}]*proxy_pass", nginx, re.S))
 
-    app = create_app()
-    mounted = {
-        route.path
-        for route in app.routes
-        if type(route).__name__ == "Mount" and route.path not in ("", "/")
-    }
+    mounted = mounted_paths(create_app())
     api_prefixes = {"/api"}
 
     missing = sorted((mounted | api_prefixes) - proxied)
@@ -149,11 +145,10 @@ def test_frontend_never_relies_on_a_trailing_slash_redirect():
     "/api/works/"; calling "/works" costs a 307 whose Location depends on every
     proxy in between forwarding the host correctly.
     """
-    app = create_app()
     root_routes = {
-        route.path[len("/api") : -1]
-        for route in app.routes
-        if getattr(route, "path", "").startswith("/api/") and route.path.endswith("/")
+        path[len("/api") : -1]
+        for _method, path, _route in api_routes(create_app())
+        if path.startswith("/api/") and path.endswith("/")
     }
     root_routes.discard("")
 
@@ -408,3 +403,49 @@ async def test_other_websites_cannot_read_the_api_with_your_cookies(monkeypatch,
     assert not readable_with_cookies, (allow_origin, credentials)
     if allow_origin == "*":
         assert credentials != "true"
+
+
+def test_every_install_path_uses_the_lock():
+    """CI, the Azure image, and the compose image must install the same versions.
+
+    Without the lock, the image built from whatever was newest on the day. That
+    shipped FastAPI 0.143 while every test had run on 0.136, and 0.143 changed
+    how routes are stored in a way that refused owners their own codex images.
+    """
+    sources = {
+        "Dockerfile": (REPO_ROOT / "Dockerfile").read_text(),
+        "backend/Dockerfile": BACKEND_DOCKERFILE.read_text(),
+        ".github/workflows/ci.yml": (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(),
+    }
+    for name, text in sources.items():
+        installs = [line for line in text.splitlines() if "pip install" in line and "." in line]
+        assert installs, f"{name}: no pip install of the project found"
+        unlocked = [line.strip() for line in installs if "-c requirements.lock" not in line]
+        assert unlocked == [], f"{name} installs without the lock: {unlocked}"
+
+
+def test_the_lock_covers_every_declared_dependency():
+    """A dependency added to pyproject.toml but not locked installs at its newest.
+
+    Constraints only pin what they list, so a gap here is silent.
+    """
+    import tomllib
+
+    lock = (REPO_ROOT / "backend" / "requirements.lock").read_text().lower()
+    locked = {
+        line.split("==")[0].strip().replace("_", "-")
+        for line in lock.splitlines()
+        if "==" in line and not line.startswith("#")
+    }
+    project = tomllib.loads((REPO_ROOT / "backend" / "pyproject.toml").read_text())["project"]
+    specs = list(project["dependencies"])
+    for group in project.get("optional-dependencies", {}).values():
+        specs.extend(group)
+    declared = {
+        re.split(r"[<>=!~\[ ]", spec, maxsplit=1)[0].strip().lower().replace("_", "-")
+        for spec in specs
+    }
+    missing = sorted(declared - locked)
+    assert missing == [], (
+        f"declared but not locked: {missing}. Run backend/scripts/lock-deps.sh"
+    )

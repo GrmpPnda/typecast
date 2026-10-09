@@ -14,10 +14,11 @@ WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
-COPY backend/pyproject.toml ./
+COPY backend/pyproject.toml backend/requirements.lock ./
 # [postgres] pulls in asyncpg. Without it the image cannot open a DATABASE_URL
-# pointing at Postgres, which is the deployment configuration.
-RUN pip install --no-cache-dir --prefix=/install ".[postgres]"
+# pointing at Postgres, which is the deployment configuration. The lock pins
+# every version to what the test suite ran against.
+RUN pip install --no-cache-dir --prefix=/install -c requirements.lock ".[postgres]"
 
 # Stage 3: Runtime
 FROM python:3.12-slim

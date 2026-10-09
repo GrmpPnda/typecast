@@ -157,7 +157,7 @@ NOT_OWNED_PARAMS = frozenset({"font_id", "profile_id", "user_id"})
 
 
 def ownership_kind(route_path: str, param: str) -> str | None:
-    """The resource kind a path parameter names, given the route's template.
+    """The resource kind a path parameter names, given the route path or URL.
 
     ``image_id`` is ambiguous on its own: under /api/codex it is a codex
     image, elsewhere a work's gallery image.
@@ -173,15 +173,18 @@ async def enforce_path_ownership(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Refuse the request unless the caller owns every resource in its path."""
-    route = request.scope.get("route")
-    template = getattr(route, "path", request.url.path)
+    # The request's own path, not the matched route's template: FastAPI 0.143
+    # stores a template without the router prefix, so "/images/{image_id}" under
+    # /api/codex looked like a gallery image and owners were refused their own
+    # codex images. The prefix is part of the URL on every version.
+    path = request.url.path
     for param, raw in request.path_params.items():
         if param in NOT_OWNED_PARAMS:
             continue
-        kind = ownership_kind(template, param)
+        kind = ownership_kind(path, param)
         if kind is None:
             # Fail closed: an unclassified ID is refused, not waved through.
-            logger.error("No ownership rule for {%s} on %s", param, template)
+            logger.error("No ownership rule for {%s} on %s", param, path)
             raise HTTPException(status_code=404, detail="Not found")
         try:
             resource_id = uuid.UUID(str(raw))
