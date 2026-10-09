@@ -52,6 +52,13 @@ password or secret is stored in GitHub. The identity gets **Contributor on that
 resource group only**. The script prints the values for the next step, including
 freshly generated secrets, which are shown once.
 
+If the workflow's Azure sign-in fails with `AADSTS700213: No matching federated
+identity record`, compare the subject in the error with
+`az identity federated-credential list --identity-name <rg>-github-deployer -g <rg> -o table`.
+GitHub names the repository either as `owner/repo` or with its numeric IDs
+(`owner@123/repo@456`); the script registers both, and re-running it fixes a
+missing one.
+
 ### 3. Add variables and secrets to GitHub
 
 Repository → **Settings** → **Secrets and variables** → **Actions**. Add them as **repository**

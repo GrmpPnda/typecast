@@ -53,14 +53,38 @@ PRINCIPAL_ID=$(az identity show --name "$IDENTITY" --resource-group "$RG" --quer
 
 # Workflows on main may sign in as this identity; nothing else may. Both the
 # deploy and infrastructure workflows run from main.
-echo "Federated credential for $REPO on main..."
-if ! az identity federated-credential show --name github-main --identity-name "$IDENTITY" \
-     --resource-group "$RG" --output none 2>/dev/null; then
-  az identity federated-credential create \
-    --name github-main --identity-name "$IDENTITY" --resource-group "$RG" \
-    --issuer https://token.actions.githubusercontent.com \
-    --subject "repo:${REPO}:ref:refs/heads/main" \
-    --audiences api://AzureADTokenExchange --output none
+#
+# Entra matches the token's subject exactly, and GitHub issues it in one of two
+# forms: by name (repo:owner/repo:...) or, for newer repositories, with the
+# immutable IDs as well (repo:owner@123/repo@456:...). Which one a repository
+# gets is not visible without signing in to GitHub, so both are registered.
+# The ID form keeps matching only this repository even if the name is reused.
+add_credential() {
+  local name="$1" subject="$2"
+  if az identity federated-credential show --name "$name" --identity-name "$IDENTITY" \
+       --resource-group "$RG" --output none 2>/dev/null; then
+    az identity federated-credential update \
+      --name "$name" --identity-name "$IDENTITY" --resource-group "$RG" \
+      --issuer https://token.actions.githubusercontent.com \
+      --subject "$subject" --audiences api://AzureADTokenExchange --output none
+  else
+    az identity federated-credential create \
+      --name "$name" --identity-name "$IDENTITY" --resource-group "$RG" \
+      --issuer https://token.actions.githubusercontent.com \
+      --subject "$subject" --audiences api://AzureADTokenExchange --output none
+  fi
+  echo "  $subject"
+}
+
+echo "Federated credentials for $REPO on main..."
+add_credential github-main "repo:${REPO}:ref:refs/heads/main"
+if REPO_JSON=$(curl -fsS "https://api.github.com/repos/${REPO}"); then
+  REPO_ID=$(jq -r .id <<<"$REPO_JSON")
+  OWNER_ID=$(jq -r .owner.id <<<"$REPO_JSON")
+  add_credential github-main-ids "repo:${REPO%%/*}@${OWNER_ID}/${REPO#*/}@${REPO_ID}:ref:refs/heads/main"
+else
+  echo "  WARNING: could not look up ${REPO} on GitHub, so only the name form is registered."
+  echo "  If sign-in fails with AADSTS700213, re-run this script."
 fi
 
 has_contributor() {
