@@ -85,6 +85,13 @@ workflows read both, and check that everything is present before touching Azure.
 fifteen minutes, most of it PostgreSQL. The run summary shows the app's URL and
 the single sign-on redirect URI. From now on, every push to `main` deploys.
 
+If it fails with `ParameterOutOfRange: The value of the 'Version' should be in: []`,
+your subscription cannot create PostgreSQL servers in that region. Confirm with
+`az postgres flexible-server list-skus --location <region> -o table`, find a region
+where it can (`eastus2` is a common choice), set it as the `POSTGRES_LOCATION`
+variable, and run the workflow again. Only the database moves; a neighbouring
+region adds a few milliseconds per query.
+
 ### 5. Move your works in
 
 On your local install, **Settings → Backup & Restore → Download Backup**. On the

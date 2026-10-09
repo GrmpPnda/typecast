@@ -31,6 +31,9 @@ param adminPassword string = ''
 @minLength(32)
 param secretKey string
 
+@description('Region for the PostgreSQL server, when it differs from the app\'s. Some subscriptions cannot create Flexible Server in some regions, which fails as "The value of the \'Version\' should be in: []". Empty means the same region as the app.')
+param postgresLocation string = ''
+
 @description('PostgreSQL administrator login.')
 param postgresAdminLogin string = 'typecast'
 
@@ -133,7 +136,7 @@ var tokenStoreSasUrl = 'https://${storage.name}.blob.${environment().suffixes.st
 
 resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   name: postgresName
-  location: location
+  location: empty(postgresLocation) ? location : postgresLocation
   sku: {
     name: 'Standard_B1ms'
     tier: 'Burstable'

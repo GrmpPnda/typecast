@@ -69,6 +69,7 @@ jobs:
           SSO_CLIENT_ID: ${{ vars.SSO_CLIENT_ID || secrets.SSO_CLIENT_ID }}
           REGISTRY_USERNAME: ${{ vars.REGISTRY_USERNAME || secrets.REGISTRY_USERNAME }}
           APP_NAME: ${{ vars.AZURE_CONTAINERAPP_NAME || 'typecast' }}
+          POSTGRES_LOCATION: ${{ vars.POSTGRES_LOCATION }}
         run: |
           image="ghcr.io/${GITHUB_REPOSITORY,,}:latest"
           params="$RUNNER_TEMP/params.json"
@@ -79,6 +80,7 @@ jobs:
             --arg postgresAdminPassword "$POSTGRES_PASSWORD" \
             --arg ssoClientId "$SSO_CLIENT_ID" --arg ssoClientSecret "$SSO_CLIENT_SECRET" \
             --arg registryUsername "$REGISTRY_USERNAME" --arg registryPassword "$REGISTRY_PASSWORD" \
+            --arg postgresLocation "$POSTGRES_LOCATION" \
             '{"$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
               contentVersion: "1.0.0.0",
               parameters: ($ARGS.named | with_entries(.value = {value: .value}))}' > "$params"
