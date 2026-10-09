@@ -370,3 +370,41 @@ async def test_the_single_container_image_serves_frontend_routes(tmp_path, monke
         for api_typo in ("/api/nope", "/uploads/nope.png"):
             resp = await ac.get(api_typo)
             assert resp.status_code == 404, f"{api_typo} must not be answered with a page"
+
+
+@pytest.mark.parametrize(
+    "origins",
+    [
+        [],  # the default: same-origin only
+        ["https://typecast.example"],  # an explicit list that does not include the attacker
+        ["*"],  # a wildcard, which must never be combined with credentials
+    ],
+    ids=["default", "explicit-list", "wildcard"],
+)
+async def test_other_websites_cannot_read_the_api_with_your_cookies(monkeypatch, origins):
+    """Under single sign-on the session is a cookie, so a credentialed wildcard is a
+    cross-site read of everything: Starlette echoed any Origin and sent
+    Allow-Credentials whenever the request carried a cookie.
+
+    A browser lets a page read a cross-origin response sent with cookies only if
+    Allow-Origin names that page's origin exactly and Allow-Credentials is true.
+    """
+    from httpx import ASGITransport, AsyncClient
+
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module, "CORS_ORIGINS", origins)
+    application = main_module.create_app()
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="https://typecast.example"
+    ) as ac:
+        resp = await ac.get(
+            "/api/health",
+            headers={"Origin": "https://evil.example", "Cookie": "AppServiceAuthSession=x"},
+        )
+    allow_origin = resp.headers.get("access-control-allow-origin")
+    credentials = resp.headers.get("access-control-allow-credentials")
+    readable_with_cookies = allow_origin == "https://evil.example" and credentials == "true"
+    assert not readable_with_cookies, (allow_origin, credentials)
+    if allow_origin == "*":
+        assert credentials != "true"

@@ -1,0 +1,62 @@
+name: Infrastructure
+
+# Creates or updates every Azure resource from infra/main.bicep. Run by hand:
+# first to create the environment, again after changing the template or a
+# setting such as single sign-on. Re-running is safe.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  apply:
+    name: Apply infra/main.bicep
+    runs-on: ubuntu-latest
+    env:
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Deploy template
+        env:
+          # Secrets go in as environment variables, not on the command line, so
+          # they never appear in a process listing.
+          SECRET_KEY: ${{ secrets.TYPECAST_SECRET_KEY }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_ADMIN_PASSWORD }}
+          ADMIN_PASSWORD: ${{ secrets.TYPECAST_ADMIN_PASSWORD }}
+          SSO_CLIENT_SECRET: ${{ secrets.SSO_CLIENT_SECRET }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+          ADMIN_EMAIL: ${{ vars.TYPECAST_ADMIN_EMAIL }}
+          SSO_CLIENT_ID: ${{ vars.SSO_CLIENT_ID }}
+          REGISTRY_USERNAME: ${{ vars.REGISTRY_USERNAME }}
+          APP_NAME: ${{ vars.AZURE_CONTAINERAPP_NAME || 'typecast' }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:latest"
+          params="$RUNNER_TEMP/params.json"
+          umask 077
+          jq -n \
+            --arg image "$image" --arg appName "$APP_NAME" --arg adminEmail "$ADMIN_EMAIL" \
+            --arg adminPassword "$ADMIN_PASSWORD" --arg secretKey "$SECRET_KEY" \
+            --arg postgresAdminPassword "$POSTGRES_PASSWORD" \
+            --arg ssoClientId "$SSO_CLIENT_ID" --arg ssoClientSecret "$SSO_CLIENT_SECRET" \
+            --arg registryUsername "$REGISTRY_USERNAME" --arg registryPassword "$REGISTRY_PASSWORD" \
+            '{"$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+              contentVersion: "1.0.0.0",
+              parameters: ($ARGS.named | with_entries(.value = {value: .value}))}' > "$params"
+          az deployment group create \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "typecast-${GITHUB_RUN_NUMBER}" \
+            --template-file infra/main.bicep \
+            --parameters "@$params" \
+            --query properties.outputs --output json | tee "$RUNNER_TEMP/outputs.json"
+          rm -f "$params"
+      - name: Summary
+        run: |
+          jq -r '"### Typecast infrastructure\n\n| | |\n|---|---|\n| App | \(.appUrl.value) |\n| SSO redirect URI | `\(.ssoRedirectUri.value)` |\n| PostgreSQL | `\(.postgresServer.value)` |"' \
+            "$RUNNER_TEMP/outputs.json" >> "$GITHUB_STEP_SUMMARY"

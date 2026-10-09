@@ -120,6 +120,10 @@ npm run dev -- --port 3000
 
 The app will be available at `http://localhost:3000`. The Vite dev server proxies `/api` and `/uploads` to the backend on port 8000.
 
+### On Azure
+
+[`infra/README.md`](infra/README.md) deploys Typecast to Azure Container Apps with PostgreSQL, Azure Files, and optional Microsoft single sign-on. GitHub Actions tests, builds, and rolls out every push to `main`; the infrastructure is declared in Bicep.
+
 ### With Docker
 
 ```bash
@@ -361,7 +365,7 @@ cd frontend && npm run lint
 # Lint backend
 cd backend && .venv/bin/python -m ruff check app/
 
-# Run backend tests (607 tests)
+# Run backend tests (610 tests)
 cd backend && .venv/bin/python -m pytest
 ```
 

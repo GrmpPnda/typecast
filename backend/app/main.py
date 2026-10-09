@@ -58,10 +58,14 @@ STATIC_DIR = Path(_static_env) if _static_env else None
 FORCE_HTTPS = os.environ.get("TYPECAST_FORCE_HTTPS", "0") == "1"
 HSTS_MAX_AGE = int(os.environ.get("TYPECAST_HSTS_MAX_AGE", "31536000"))
 
-# "*" is correct for a local single-user server. On a reachable deployment it
-# lets any website call the API with a stolen token, so set an explicit origin.
+# Off unless configured. The frontend is always served from the same origin as
+# the API (by the backend itself, by nginx, or through the Vite dev proxy), so
+# the browser never needs CORS. The old default of "*" with credentials made
+# Starlette echo any requesting origin and allow credentials whenever a cookie
+# was present, and under single sign-on the session *is* a cookie: any website
+# you visited while signed in could read your manuscripts.
 _origins_env = os.environ.get("TYPECAST_CORS_ORIGINS", "").strip()
-CORS_ORIGINS = [o.strip() for o in _origins_env.split(",") if o.strip()] or ["*"]
+CORS_ORIGINS = [o.strip() for o in _origins_env.split(",") if o.strip()]
 
 
 @asynccontextmanager
@@ -106,13 +110,15 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Typecast", version="0.1.0", lifespan=lifespan)
 
     app.add_middleware(RequestLoggingMiddleware)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=CORS_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    if CORS_ORIGINS:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=CORS_ORIGINS,
+            # Never with a wildcard: that combination is the vulnerability above.
+            allow_credentials="*" not in CORS_ORIGINS,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     if FORCE_HTTPS:
         # The scheme is the one --proxy-headers derives from X-Forwarded-Proto,
@@ -187,7 +193,9 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     async def health_check():
-        return {"status": "ok"}
+        # The deploy workflow polls this until the version matches the commit it
+        # just shipped, so it knows the new revision is the one answering.
+        return {"status": "ok", "version": os.environ.get("TYPECAST_VERSION", "dev")}
 
     if STATIC_DIR and STATIC_DIR.is_dir():
         app.mount("/", SinglePageApp(directory=str(STATIC_DIR), html=True), name="static")

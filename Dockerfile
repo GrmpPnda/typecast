@@ -42,11 +42,16 @@ COPY backend/ ./
 # Built frontend served as static files
 COPY --from=frontend-builder /app/dist ./static
 
-# Data directory for EFS mount (SQLite DB + uploads)
+# Data directory: uploads, plus the SQLite database when DATABASE_URL is unset.
+# Mount persistent storage here (Azure Files on Container Apps).
 RUN mkdir -p /data/uploads
 
 ENV TYPECAST_DATA_DIR=/data
 ENV TYPECAST_STATIC_DIR=/app/static
+
+# The commit this image was built from, reported by /api/health.
+ARG TYPECAST_VERSION=dev
+ENV TYPECAST_VERSION=$TYPECAST_VERSION
 
 EXPOSE 8000
 

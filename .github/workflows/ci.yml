@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    # main is tested by the deploy workflow, which calls this before shipping.
+    branches-ignore: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install
+        run: python -m pip install -e ".[dev,postgres]"
+      - name: Lint tests and migrations
+        run: python -m ruff check tests/ alembic/
+      - name: Lint application (report only)
+        # app/ carries 21 pre-existing findings (long lines, two uppercase locals).
+        # Reported, not enforced, until they are cleared; then drop --exit-zero.
+        run: python -m ruff check app/ --exit-zero --statistics
+      - name: Test
+        run: python -m pytest -q
+
+  postgres:
+    name: PostgreSQL migrations and startup
+    # Unit tests run on SQLite. This exercises the real thing: every migration,
+    # drift between migrations and models, and the app booting against Postgres.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: typecast
+          POSTGRES_PASSWORD: typecast
+          POSTGRES_DB: typecast
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U typecast"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # The libpq form a cloud console hands out; the app rewrites it for asyncpg.
+      DATABASE_URL: postgresql://typecast:typecast@localhost:5432/typecast?sslmode=disable
+      TYPECAST_DATA_DIR: /tmp/typecast-data
+      TYPECAST_AUTH_MODE: multi
+      SECRET_KEY: ci-only-not-a-secret-ci-only-not-a-secret
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install
+        run: python -m pip install -e ".[dev,postgres]"
+      - name: Apply every migration
+        run: python -m alembic upgrade head
+      - name: Migrations match the models
+        run: python -m alembic check
+      - name: App starts and answers
+        run: |
+          python -m uvicorn app.main:app --port 8000 > "$RUNNER_TEMP/server.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/api/health; then echo; exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/server.log"
+          exit 1
+
+  frontend:
+    name: Frontend type check and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build
