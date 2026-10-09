@@ -29,8 +29,22 @@ jobs:
       packages: write
     outputs:
       image: ${{ steps.ref.outputs.image }}
+      azure_configured: ${{ steps.azure.outputs.configured }}
     steps:
       - uses: actions/checkout@v4
+      - name: Is Azure set up yet?
+        id: azure
+        # A job-level `if` cannot read secrets, and the Azure IDs may be stored as
+        # either variables or secrets, so decide here and hand the answer on.
+        env:
+          CLIENT_ID: ${{ vars.AZURE_CLIENT_ID || secrets.AZURE_CLIENT_ID }}
+        run: |
+          if [ -n "$CLIENT_ID" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Azure is not set up yet (no AZURE_CLIENT_ID), so this run publishes the image without deploying it."
+          fi
       - name: Image name
         id: ref
         # Registry paths must be lowercase; the account name is not.
@@ -63,21 +77,34 @@ jobs:
   deploy:
     name: Roll out to Azure
     needs: image
-    if: vars.AZURE_CLIENT_ID != ''
+    if: needs.image.outputs.azure_configured == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write  # federated sign-in to Azure; no stored Azure secret
     env:
-      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID || secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID || secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID || secrets.AZURE_SUBSCRIPTION_ID }}
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || secrets.AZURE_RESOURCE_GROUP }}
       APP_NAME: ${{ vars.AZURE_CONTAINERAPP_NAME || 'typecast' }}
       IMAGE: ${{ needs.image.outputs.image }}
     steps:
+      - name: Check configuration
+        run: |
+          missing=()
+          [ -n "$AZURE_TENANT_ID" ]       || missing+=("AZURE_TENANT_ID")
+          [ -n "$AZURE_SUBSCRIPTION_ID" ] || missing+=("AZURE_SUBSCRIPTION_ID")
+          [ -n "$RESOURCE_GROUP" ]        || missing+=("AZURE_RESOURCE_GROUP")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Missing configuration::AZURE_CLIENT_ID is set but these are not: ${missing[*]}. Add them under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
       - uses: azure/login@v2
         with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
       - name: Point the app at the new image
         run: |
           az containerapp update \

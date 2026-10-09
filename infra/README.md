@@ -54,7 +54,9 @@ freshly generated secrets, which are shown once.
 
 ### 3. Add variables and secrets to GitHub
 
-Repository → **Settings** → **Secrets and variables** → **Actions**.
+Repository → **Settings** → **Secrets and variables** → **Actions**. Add them as **repository**
+values, not under an environment. Each can go on either the **Variables** or the **Secrets** tab; the
+workflows read both, and check that everything is present before touching Azure.
 
 | Variable | Value |
 | --- | --- |

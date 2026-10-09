@@ -15,14 +15,47 @@ jobs:
     name: Apply infra/main.bicep
     runs-on: ubuntu-latest
     env:
-      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      # Each setting is read from Variables or, failing that, Secrets: the IDs are
+      # not sensitive, but they are often stored as secrets, and the two tabs sit
+      # side by side in GitHub's settings.
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID || secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID || secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID || secrets.AZURE_SUBSCRIPTION_ID }}
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || secrets.AZURE_RESOURCE_GROUP }}
     steps:
       - uses: actions/checkout@v4
+      - name: Check configuration
+        env:
+          ADMIN_EMAIL: ${{ vars.TYPECAST_ADMIN_EMAIL || secrets.TYPECAST_ADMIN_EMAIL }}
+          HAS_SECRET_KEY: ${{ secrets.TYPECAST_SECRET_KEY != '' }}
+          HAS_POSTGRES_PASSWORD: ${{ secrets.POSTGRES_ADMIN_PASSWORD != '' }}
+          SSO_CLIENT_ID: ${{ vars.SSO_CLIENT_ID || secrets.SSO_CLIENT_ID }}
+          HAS_SSO_SECRET: ${{ secrets.SSO_CLIENT_SECRET != '' }}
+        run: |
+          missing=()
+          [ -n "$AZURE_CLIENT_ID" ]       || missing+=("AZURE_CLIENT_ID")
+          [ -n "$AZURE_TENANT_ID" ]       || missing+=("AZURE_TENANT_ID")
+          [ -n "$AZURE_SUBSCRIPTION_ID" ] || missing+=("AZURE_SUBSCRIPTION_ID")
+          [ -n "$RESOURCE_GROUP" ]        || missing+=("AZURE_RESOURCE_GROUP")
+          [ -n "$ADMIN_EMAIL" ]           || missing+=("TYPECAST_ADMIN_EMAIL")
+          [ "$HAS_SECRET_KEY" = true ]        || missing+=("TYPECAST_SECRET_KEY (secret)")
+          [ "$HAS_POSTGRES_PASSWORD" = true ] || missing+=("POSTGRES_ADMIN_PASSWORD (secret)")
+          if [ -n "$SSO_CLIENT_ID" ] && [ "$HAS_SSO_SECRET" != true ]; then
+            missing+=("SSO_CLIENT_SECRET (secret; SSO_CLIENT_ID is set)")
+          fi
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Missing configuration::Not set: ${missing[*]}"
+            echo "Add them under Settings -> Secrets and variables -> Actions, as repository"
+            echo "values (not under an environment, and not Codespaces or Dependabot)."
+            echo "Each one can be a variable or a secret. infra/bootstrap.sh prints them."
+            exit 1
+          fi
+          echo "Configuration complete: resource group $RESOURCE_GROUP, sign-in $([ -n "$SSO_CLIENT_ID" ] && echo "Microsoft SSO" || echo "passwords")"
       - uses: azure/login@v2
         with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
       - name: Deploy template
         env:
           # Secrets go in as environment variables, not on the command line, so
@@ -32,9 +65,9 @@ jobs:
           ADMIN_PASSWORD: ${{ secrets.TYPECAST_ADMIN_PASSWORD }}
           SSO_CLIENT_SECRET: ${{ secrets.SSO_CLIENT_SECRET }}
           REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-          ADMIN_EMAIL: ${{ vars.TYPECAST_ADMIN_EMAIL }}
-          SSO_CLIENT_ID: ${{ vars.SSO_CLIENT_ID }}
-          REGISTRY_USERNAME: ${{ vars.REGISTRY_USERNAME }}
+          ADMIN_EMAIL: ${{ vars.TYPECAST_ADMIN_EMAIL || secrets.TYPECAST_ADMIN_EMAIL }}
+          SSO_CLIENT_ID: ${{ vars.SSO_CLIENT_ID || secrets.SSO_CLIENT_ID }}
+          REGISTRY_USERNAME: ${{ vars.REGISTRY_USERNAME || secrets.REGISTRY_USERNAME }}
           APP_NAME: ${{ vars.AZURE_CONTAINERAPP_NAME || 'typecast' }}
         run: |
           image="ghcr.io/${GITHUB_REPOSITORY,,}:latest"
