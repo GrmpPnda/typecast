@@ -50,6 +50,9 @@ deploy/
 # User data — never commit a manuscript or its media
 # ---------------------------------------------------------------------------
 *.db
+# Copies taken before a migration or repair (typecast.db.before-...) hold the
+# same manuscripts as the database itself.
+*.db.*
 *.db-journal
 *.db-wal
 *.db-shm

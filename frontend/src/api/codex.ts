@@ -8,7 +8,7 @@ export async function listCodexEntries(
   if (filters?.entryType) params.entry_type = filters.entryType;
   if (filters?.workId) params.work_id = filters.workId;
   if (filters?.seriesId) params.series_id = filters.seriesId;
-  const { data } = await client.get<CodexEntry[]>("/codex", { params });
+  const { data } = await client.get<CodexEntry[]>("/codex/", { params });
   return data;
 }
 
@@ -20,7 +20,7 @@ export async function getCodexEntry(id: string): Promise<CodexEntry> {
 export async function createCodexEntry(
   payload: CreateCodexEntry
 ): Promise<CodexEntry> {
-  const { data } = await client.post<CodexEntry>("/codex", payload);
+  const { data } = await client.post<CodexEntry>("/codex/", payload);
   return data;
 }
 

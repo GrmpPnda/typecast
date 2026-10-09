@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user
+from app.api.ownership import require_owned
 from app.db.engine import get_db
 from app.models.conversation import Conversation, ConversationMessage
 from app.models.user import User
@@ -61,6 +62,7 @@ async def create_conversation(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await require_owned(db, user, "work", data.work_id)
     conv = Conversation(
         user_id=user.id,
         title=data.title,

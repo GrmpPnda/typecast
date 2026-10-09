@@ -2,7 +2,7 @@ import client from "./client";
 import { Profile, CreateProfile, UpdateProfile } from "@/types";
 
 export async function listProfiles(): Promise<Profile[]> {
-  const { data } = await client.get<Profile[]>("/profiles");
+  const { data } = await client.get<Profile[]>("/profiles/");
   return data;
 }
 
@@ -12,7 +12,7 @@ export async function getProfile(id: string): Promise<Profile> {
 }
 
 export async function createProfile(payload: CreateProfile): Promise<Profile> {
-  const { data } = await client.post<Profile>("/profiles", payload);
+  const { data } = await client.post<Profile>("/profiles/", payload);
   return data;
 }
 

@@ -1,18 +1,56 @@
+"""Engine, session factory, and startup schema work.
+
+Alembic owns the schema on both SQLite and Postgres, and startup brings the
+database up to date so that pointing ``DATABASE_URL`` at an empty database of
+either kind is all it takes to run from source. One mechanism rather than two,
+because ``create_all`` cannot alter an existing table and a second mechanism
+would disagree with the migrations sooner or later.
+
+The long block of hand-written ``ALTER TABLE`` statements that used to live here
+was retired when the Alembic baseline landed: it detected columns with ``PRAGMA
+table_info``, declared ``BOOLEAN DEFAULT 0``, and compared ``is_builtin = 1``,
+none of which Postgres accepts.
+"""
+
 from __future__ import annotations
 
+import logging
+import os
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
-from sqlalchemy import event
+from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
+from sqlalchemy import event, inspect, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from alembic import command
 from app.config import settings
 from app.db.base import Base
 
-engine = create_async_engine(settings.DATABASE_URL, echo=False)
+# Migrating on startup suits a single-replica deployment. Turn it off and run
+# "alembic upgrade head" as a separate step if several replicas start at once,
+# since they would otherwise race to apply the same revision.
+AUTO_MIGRATE = os.environ.get("TYPECAST_AUTO_MIGRATE", "1") != "0"
+
+BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+ALEMBIC_INI = BACKEND_DIR / "alembic.ini"
+
+logger = logging.getLogger(__name__)
+
+engine = create_async_engine(settings.database_url, echo=False)
 
 
 @event.listens_for(engine.sync_engine, "connect")
 def _set_sqlite_pragma(dbapi_connection, connection_record):
+    """Turn on SQLite foreign keys, which default to off on every connection.
+
+    Gated on the dialect: this fired unconditionally before, so ``PRAGMA`` was
+    sent to Postgres and the first connection failed with a syntax error.
+    """
+    if engine.dialect.name != "sqlite":
+        return
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
@@ -27,129 +65,192 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        await conn.execute(
-            __import__("sqlalchemy").text(
-                "ALTER TABLE profiles ADD COLUMN header_recto VARCHAR(50)"
-            )
-        ) if await _column_missing(conn, "profiles", "header_recto") else None
-        await conn.execute(
-            __import__("sqlalchemy").text(
-                "ALTER TABLE profiles ADD COLUMN header_verso VARCHAR(50)"
-            )
-        ) if await _column_missing(conn, "profiles", "header_verso") else None
-        await conn.execute(
-            __import__("sqlalchemy").text(
-                "ALTER TABLE profiles ADD COLUMN header_position VARCHAR(20) DEFAULT 'outer'"
-            )
-        ) if await _column_missing(conn, "profiles", "header_position") else None
-        for col, sql in [
-            ("text_align", "ALTER TABLE profiles ADD COLUMN text_align VARCHAR(20) DEFAULT 'justify'"),
-            ("chapter_font_family", "ALTER TABLE profiles ADD COLUMN chapter_font_family VARCHAR(200)"),
-            ("chapter_font_size", "ALTER TABLE profiles ADD COLUMN chapter_font_size VARCHAR(20)"),
-            ("chapter_font_weight", "ALTER TABLE profiles ADD COLUMN chapter_font_weight VARCHAR(20)"),
-            ("chapter_align", "ALTER TABLE profiles ADD COLUMN chapter_align VARCHAR(20)"),
-            ("chapter_sink", "ALTER TABLE profiles ADD COLUMN chapter_sink FLOAT"),
-            ("chapters_start_recto", "ALTER TABLE profiles ADD COLUMN chapters_start_recto BOOLEAN DEFAULT 0"),
-            ("header_font_family", "ALTER TABLE profiles ADD COLUMN header_font_family VARCHAR(200)"),
-            ("header_font_size", "ALTER TABLE profiles ADD COLUMN header_font_size VARCHAR(20)"),
-            ("header_margin_top", "ALTER TABLE profiles ADD COLUMN header_margin_top FLOAT"),
-            ("header_from_edge", "ALTER TABLE profiles ADD COLUMN header_from_edge FLOAT"),
-            ("footer_margin_bottom", "ALTER TABLE profiles ADD COLUMN footer_margin_bottom FLOAT"),
-            ("footer_from_edge", "ALTER TABLE profiles ADD COLUMN footer_from_edge FLOAT"),
-            ("back_matter_page_numbers", "ALTER TABLE profiles ADD COLUMN back_matter_page_numbers BOOLEAN DEFAULT 1"),
-            ("footer_recto", "ALTER TABLE profiles ADD COLUMN footer_recto VARCHAR(50)"),
-            ("footer_verso", "ALTER TABLE profiles ADD COLUMN footer_verso VARCHAR(50)"),
-            ("footer_position", "ALTER TABLE profiles ADD COLUMN footer_position VARCHAR(20) DEFAULT 'center'"),
-            ("header_font_weight", "ALTER TABLE profiles ADD COLUMN header_font_weight VARCHAR(20)"),
-            ("front_matter_roman", "ALTER TABLE profiles ADD COLUMN front_matter_roman BOOLEAN DEFAULT 0"),
-        ]:
-            if await _column_missing(conn, "profiles", col):
-                await conn.execute(__import__("sqlalchemy").text(sql))
-        # Migrate page_numbers to footer content
-        await conn.execute(
-            __import__("sqlalchemy").text(
-                "UPDATE profiles SET footer_recto = 'page_number', footer_verso = 'page_number', "
-                "footer_position = CASE WHEN page_number_position = 'outside' THEN 'outer' "
-                "WHEN page_number_position = 'center' THEN 'center' ELSE 'center' END "
-                "WHERE page_numbers = 1 AND footer_recto IS NULL"
-            )
+    """Create or upgrade the schema, then seed. Safe to run on every start."""
+    # Register every table before anything inspects Base.metadata. init_db used
+    # to rely on the caller having imported the models first, which main.py does
+    # by accident (it imports the routers) and a direct caller does not.
+    import app.models  # noqa: F401
+
+    if AUTO_MIGRATE:
+        await _migrate_to_head()
+    else:
+        logger.warning(
+            "TYPECAST_AUTO_MIGRATE=0: run 'alembic upgrade head' yourself before serving"
         )
-        await conn.execute(
-            __import__("sqlalchemy").text(
-                "ALTER TABLE works ADD COLUMN ai_instructions TEXT DEFAULT ''"
-            )
-        ) if await _column_missing(conn, "works", "ai_instructions") else None
-        await conn.execute(
-            __import__("sqlalchemy").text(
-                "ALTER TABLE series ADD COLUMN ai_instructions TEXT DEFAULT ''"
-            )
-        ) if await _column_missing(conn, "series", "ai_instructions") else None
-        if await _column_missing(conn, "comments", "suggestion"):
-            await conn.execute(
-                __import__("sqlalchemy").text(
-                    "ALTER TABLE comments ADD COLUMN suggestion TEXT"
-                )
-            )
-        if await _column_missing(conn, "scenes", "checkpoint"):
-            await conn.execute(
-                __import__("sqlalchemy").text(
-                    "ALTER TABLE scenes ADD COLUMN checkpoint TEXT"
-                )
-            )
-        if await _column_missing(conn, "works", "title_page_config"):
-            await conn.execute(
-                __import__("sqlalchemy").text(
-                    "ALTER TABLE works ADD COLUMN title_page_config TEXT"
-                )
-            )
-        if await _column_missing(conn, "codex_entries", "voice_id"):
-            await conn.execute(
-                __import__("sqlalchemy").text(
-                    "ALTER TABLE codex_entries ADD COLUMN voice_id VARCHAR(100)"
-                )
-            )
-        if await _column_missing(conn, "images", "tags"):
-            await conn.execute(
-                __import__("sqlalchemy").text(
-                    "ALTER TABLE images ADD COLUMN tags TEXT DEFAULT ''"
-                )
-            )
-        from sqlalchemy import text
-        for name, mt, mb, hmt, hfe, fmb, ffe, fr, fv, fp in [
-            ("Paperback 6x9", 0.875, 0.875, 0.25, 0.3, 0.25, 0.3, "page_number", "page_number", "outer"),
-            ("Paperback 5.5x8.5", 0.8, 0.8, 0.2, 0.3, 0.2, 0.3, "page_number", "page_number", "center"),
-            ("Hardback 6x9", 1.0, 1.0, 0.3, 0.35, 0.3, 0.35, "page_number", "page_number", "outer"),
-        ]:
-            await conn.execute(text(
-                "UPDATE profiles SET margin_top = :mt, margin_bottom = :mb, "
-                "header_margin_top = :hmt, header_from_edge = :hfe, "
-                "footer_margin_bottom = :fmb, footer_from_edge = :ffe, "
-                "footer_recto = :fr, footer_verso = :fv, footer_position = :fp "
-                "WHERE name = :name AND is_builtin = 1"
-            ), {"mt": mt, "mb": mb, "hmt": hmt, "hfe": hfe, "fmb": fmb, "ffe": ffe,
-                "fr": fr, "fv": fv, "fp": fp, "name": name})
-        # User ownership columns
-        for table, col in [
-            ("series", "user_id"),
-            ("works", "user_id"),
-            ("conversations", "user_id"),
-        ]:
-            if await _column_missing(conn, table, col):
-                await conn.execute(text(
-                    f"ALTER TABLE {table} ADD COLUMN {col} VARCHAR(36)"
-                ))
+
     await _seed_profiles()
+    await _sync_builtin_profile_metrics()
     await _backfill_user_ownership()
+    await _bootstrap_admin()
 
 
-async def _column_missing(conn, table: str, column: str) -> bool:
-    from sqlalchemy import text
+def _alembic_config(connection) -> Config:
+    config = Config(str(ALEMBIC_INI))
+    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    # env.py uses this instead of building its own engine: we are already inside
+    # a running event loop, where a second asyncio.run() would fail.
+    config.attributes["connection"] = connection
+    return config
 
-    result = await conn.execute(text(f"PRAGMA table_info({table})"))
-    columns = [row[1] for row in result.fetchall()]
-    return column not in columns
+
+def _upgrade_or_adopt(connection) -> None:
+    """Bring the schema to head, adopting a database created before Alembic.
+
+    Three cases. An empty database gets every table from the baseline. A
+    database already under Alembic gets any newer revisions. A database with our
+    tables but no ``alembic_version`` predates the baseline, so it is stamped
+    rather than upgraded, because replaying the baseline would fail on tables
+    that already exist. Development databases from before the Alembic switch are
+    in that third state.
+    """
+    context = MigrationContext.configure(connection)
+    current = context.get_current_revision()
+    head = ScriptDirectory.from_config(_alembic_config(connection)).get_current_head()
+
+    if current is not None:
+        if current == head:
+            logger.debug("Schema already at head (%s)", head)
+        else:
+            logger.info("Upgrading schema %s -> %s", current, head)
+        command.upgrade(_alembic_config(connection), "head")
+        return
+
+    existing = set(inspect(connection).get_table_names())
+    expected = set(Base.metadata.tables)
+    if existing & expected:
+        logger.warning(
+            "Database has %d of our tables but no alembic_version; stamping as %s "
+            "instead of re-creating them",
+            len(existing & expected), head,
+        )
+        command.stamp(_alembic_config(connection), "head")
+        return
+
+    logger.info("Empty database: creating schema at revision %s", head)
+    command.upgrade(_alembic_config(connection), "head")
+
+
+def make_migration_engine(url: str):
+    """An engine whose transactions really cover DDL, for running migrations.
+
+    Python's sqlite3 driver does not emit BEGIN before DDL, so on the normal
+    engine an ALTER TABLE runs in autocommit even inside ``engine.begin()``. A
+    migration that failed partway through therefore left its earlier steps
+    applied with the version unchanged, and every later startup failed on the
+    half-done step. That happened to a real development database: a column and
+    an index were added, the foreign key step failed, and the next run died on
+    "duplicate column name". Taking transaction control from the driver and
+    issuing BEGIN ourselves (SQLAlchemy's documented recipe) makes the whole
+    migration roll back instead.
+
+    Kept separate from the application engine on purpose. Applied there, every
+    read would hold a SQLite lock until its session closed, and a streaming AI
+    response keeps its session open for minutes.
+    """
+    migration_engine = create_async_engine(url)
+    if migration_engine.dialect.name == "sqlite":
+
+        @event.listens_for(migration_engine.sync_engine, "connect")
+        def _take_transaction_control(dbapi_connection, connection_record):
+            dbapi_connection.isolation_level = None
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+        @event.listens_for(migration_engine.sync_engine, "begin")
+        def _begin(conn):
+            conn.exec_driver_sql("BEGIN")
+
+    return migration_engine
+
+
+async def _migrate_to_head() -> None:
+    migration_engine = make_migration_engine(settings.database_url)
+    try:
+        async with migration_engine.begin() as conn:
+            await conn.run_sync(_upgrade_or_adopt)
+    except Exception as exc:
+        logger.error("Schema migration failed: %s", exc)
+        raise RuntimeError(_connection_help(exc)) from exc
+    finally:
+        await migration_engine.dispose()
+
+
+def _connection_help(exc: Exception) -> str:
+    """Turn a driver-level failure into something actionable.
+
+    A missing Postgres database is the common first-run mistake, and asyncpg
+    reports it as InvalidCatalogNameError, which says little on its own.
+    """
+    name = type(exc).__name__
+    text = str(exc)
+    if "InvalidCatalogName" in name or ("does not exist" in text and settings.is_postgres):
+        return (
+            "The Postgres database in DATABASE_URL does not exist. Typecast creates "
+            "its tables but not the database itself: create it first with "
+            "'createdb typecast' or CREATE DATABASE, then start again. "
+            f"Driver said: {text}"
+        )
+    if "InvalidPassword" in name or "PasswordAuthenticationFailed" in name:
+        return f"Postgres rejected the credentials in DATABASE_URL. Driver said: {text}"
+    if "ConnectionRefused" in name or "Connect call failed" in text:
+        return (
+            "Could not reach the database host in DATABASE_URL. Check the host, port, "
+            f"and that TLS is required ('?sslmode=require'). Driver said: {text}"
+        )
+    return f"Could not prepare the database schema: {text}"
+
+
+async def _bootstrap_admin() -> None:
+    """Create the first admin from the environment on an empty user table."""
+    from app.services.auth import ensure_admin_user
+
+    async with async_session_factory() as session:
+        await ensure_admin_user(session)
+
+
+async def _sync_builtin_profile_metrics() -> None:
+    """Reset margin and header/footer geometry on the built-in profiles.
+
+    Runs every startup so corrections to the shipped defaults reach existing
+    databases. Only touches ``is_builtin`` rows, so custom profiles are left
+    alone, but it does mean an edit to a built-in profile's geometry does not
+    survive a restart.
+    """
+    from app.models.profile import Profile
+
+    footer = {"footer_recto": "page_number", "footer_verso": "page_number"}
+    metrics = {
+        "Paperback 6x9": dict(
+            margin_top=0.875, margin_bottom=0.875,
+            header_margin_top=0.25, header_from_edge=0.3,
+            footer_margin_bottom=0.25, footer_from_edge=0.3,
+            footer_position="outer", **footer,
+        ),
+        "Paperback 5.5x8.5": dict(
+            margin_top=0.8, margin_bottom=0.8,
+            header_margin_top=0.2, header_from_edge=0.3,
+            footer_margin_bottom=0.2, footer_from_edge=0.3,
+            footer_position="center", **footer,
+        ),
+        "Hardback 6x9": dict(
+            margin_top=1.0, margin_bottom=1.0,
+            header_margin_top=0.3, header_from_edge=0.35,
+            footer_margin_bottom=0.3, footer_from_edge=0.35,
+            footer_position="outer", **footer,
+        ),
+    }
+    async with async_session_factory() as session:
+        for name, values in metrics.items():
+            # ORM update rather than raw SQL: the old statement compared
+            # "is_builtin = 1", which Postgres rejects for a boolean column.
+            await session.execute(
+                update(Profile)
+                .where(Profile.name == name, Profile.is_builtin.is_(True))
+                .values(**values)
+            )
+        await session.commit()
+    logger.debug("Built-in profile geometry synced (%d profiles)", len(metrics))
 
 
 async def _seed_profiles() -> None:
@@ -271,19 +372,30 @@ async def _seed_profiles() -> None:
 
 async def _backfill_user_ownership() -> None:
     """Assign unowned records to the local user if in local auth mode."""
-    from sqlalchemy import text
-
+    from app.models.codex import CodexEntry
+    from app.models.conversation import Conversation
+    from app.models.series import Series
+    from app.models.work import Work
     from app.services.auth import AUTH_MODE, get_or_create_local_user
 
     if AUTH_MODE != "local":
+        logger.debug("Skipping ownership backfill: auth mode is %s", AUTH_MODE)
         return
 
     async with async_session_factory() as session:
         user = await get_or_create_local_user(session)
-        uid = user.id.hex
-        for table in ("series", "works", "conversations"):
-            await session.execute(
-                text(f"UPDATE {table} SET user_id = :uid WHERE user_id IS NULL"),
-                {"uid": uid},
+        # ORM updates bind the UUID itself. The old raw SQL passed user.id.hex,
+        # a 32-character string that matches SQLite's CHAR(32) rendering but not
+        # a Postgres uuid column.
+        # CodexEntry: entries made with no work or series have no other owner.
+        for model in (Series, Work, Conversation, CodexEntry):
+            result = await session.execute(
+                update(model).where(model.user_id.is_(None)).values(user_id=user.id)
             )
+            if result.rowcount:
+                logger.info(
+                    "Backfilled %d unowned %s rows to the local user",
+                    result.rowcount,
+                    model.__tablename__,
+                )
         await session.commit()

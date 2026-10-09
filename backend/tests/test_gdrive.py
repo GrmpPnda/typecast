@@ -467,8 +467,15 @@ async def test_disconnect_clears_the_token(client, db_session):
     assert await get_config_value(db_session, "gdrive_enabled") == "false"
 
 
+async def _owned_work(client) -> str:
+    """A real work owned by the test account; a random ID is now a 404."""
+    resp = await client.post("/api/works/", json={"title": "Drive Test", "author": "A"})
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
 async def test_export_requires_connection(client):
-    work_id = uuid.uuid4()
+    work_id = await _owned_work(client)
     response = await client.post(
         f"/api/gdrive/works/{work_id}/export",
         json={"format": "docx"},
@@ -582,8 +589,9 @@ async def test_export_keeps_extension_for_pdf(client, db_session, monkeypatch):
 
 
 async def test_export_rejects_unknown_format(client):
+    work_id = await _owned_work(client)
     response = await client.post(
-        f"/api/gdrive/works/{uuid.uuid4()}/export",
+        f"/api/gdrive/works/{work_id}/export",
         json={"format": "mobi"},
     )
     assert response.status_code == 422

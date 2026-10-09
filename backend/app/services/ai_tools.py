@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+import logging
 import uuid
+from contextvars import ContextVar
 from typing import Any
 
 from sqlalchemy import select
@@ -14,6 +16,8 @@ from app.models.codex_association import CodexAssociation
 from app.models.scene import Scene
 from app.models.series import Series
 from app.models.work import Work
+
+logger = logging.getLogger(__name__)
 
 TOOL_DEFINITIONS = [
     {
@@ -432,24 +436,89 @@ TOOL_DEFINITIONS = [
 ]
 
 
+# The account the current tool call acts for. Set by execute_tool for the
+# duration of one call; the handlers read it through _owner_id().
+_acting_user: ContextVar[uuid.UUID | None] = ContextVar("_acting_user", default=None)
+
+# Input keys that name a resource, and the kind each one names. The model picks
+# these IDs, so it could be talked into naming someone else's work; every one
+# is checked before the tool runs, however deeply it is nested.
+_ID_KEYS = {
+    "work_id": "work",
+    "series_id": "series",
+    "chapter_id": "chapter",
+    "scene_id": "scene",
+    "entry_id": "codex_entry",
+    "codex_entry_id": "codex_entry",
+    "reference_codex_ids": "codex_entry",
+}
+
+
+def _owner_id() -> uuid.UUID:
+    owner = _acting_user.get()
+    if owner is None:
+        raise RuntimeError("AI tool ran without an acting account")
+    return owner
+
+
+def _ids_in(value: Any):
+    """Yield (kind, id) for every resource ID anywhere in a tool input."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            kind = _ID_KEYS.get(key)
+            if kind is not None and item:
+                for raw in item if isinstance(item, list) else [item]:
+                    yield kind, raw
+            else:
+                yield from _ids_in(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _ids_in(item)
+
+
+async def _check_tool_ids(db: AsyncSession, user, tool_input: dict[str, Any]) -> str | None:
+    """An error message if the input names anything the user does not own."""
+    from app.api.ownership import owns
+
+    for kind, raw in _ids_in(tool_input):
+        try:
+            resource_id = uuid.UUID(str(raw))
+        except ValueError:
+            return f"Invalid {kind} id: {raw}"
+        if not await owns(db, user, kind, resource_id):
+            logger.warning("AI tool denied %s %s for %s", kind, resource_id, user.email)
+            # Worded as absence, so the model cannot use errors to probe IDs.
+            return f"No {kind.replace('_', ' ')} with id {resource_id} exists"
+    return None
+
+
 async def execute_tool(
     db: AsyncSession,
     tool_name: str,
     tool_input: dict[str, Any],
+    user,
 ) -> dict[str, Any]:
     handler = _HANDLERS.get(tool_name)
     if not handler:
         return {"error": f"Unknown tool: {tool_name}"}
+    denied = await _check_tool_ids(db, user, tool_input)
+    if denied:
+        return {"error": denied}
+    token = _acting_user.set(user.id)
     try:
         return await handler(db, tool_input)
     except ValueError as exc:
         return {"error": f"Invalid input: {exc}"}
     except Exception as exc:
         return {"error": f"Tool failed: {type(exc).__name__}: {exc}"}
+    finally:
+        _acting_user.reset(token)
 
 
 async def _create_series(db: AsyncSession, inp: dict) -> dict:
-    series = Series(title=inp["title"], description=inp.get("description", ""))
+    series = Series(
+        title=inp["title"], description=inp.get("description", ""), user_id=_owner_id()
+    )
     db.add(series)
     await db.commit()
     await db.refresh(series)
@@ -463,6 +532,7 @@ async def _create_work(db: AsyncSession, inp: dict) -> dict:
         "description": inp.get("description", ""),
         "blurb": inp.get("blurb", ""),
         "genre": inp.get("genre", []),
+        "user_id": _owner_id(),
     }
     if inp.get("series_id"):
         kwargs["series_id"] = uuid.UUID(inp["series_id"])
@@ -580,6 +650,7 @@ async def _write_scene(db: AsyncSession, inp: dict) -> dict:
 
 async def _create_codex_entry(db: AsyncSession, inp: dict) -> dict:
     entry = CodexEntry(
+        user_id=_owner_id(),
         name=inp["name"],
         entry_type=inp["entry_type"],
         description=inp.get("description", ""),
@@ -615,6 +686,7 @@ async def _bulk_create_codex(db: AsyncSession, inp: dict) -> dict:
     created = []
     for item in entries_data:
         entry = CodexEntry(
+            user_id=_owner_id(),
             name=item["name"],
             entry_type=item["entry_type"],
             description=item.get("description", ""),
@@ -702,7 +774,7 @@ async def _summarize_work(db: AsyncSession, inp: dict) -> dict:
 
 
 async def _list_works(db: AsyncSession, inp: dict) -> dict:
-    stmt = select(Work)
+    stmt = select(Work).where(Work.user_id == _owner_id())
     if inp.get("series_id"):
         stmt = stmt.where(Work.series_id == uuid.UUID(inp["series_id"]))
     result = await db.execute(stmt.order_by(Work.sort_order))
@@ -716,7 +788,9 @@ async def _list_works(db: AsyncSession, inp: dict) -> dict:
 
 
 async def _list_series(db: AsyncSession, _inp: dict) -> dict:
-    result = await db.execute(select(Series).order_by(Series.sort_order))
+    result = await db.execute(
+        select(Series).where(Series.user_id == _owner_id()).order_by(Series.sort_order)
+    )
     all_series = result.scalars().all()
     return {
         "series": [
@@ -752,7 +826,7 @@ async def _list_chapters(db: AsyncSession, inp: dict) -> dict:
 
 
 async def _list_codex_entries(db: AsyncSession, inp: dict) -> dict:
-    stmt = select(CodexEntry)
+    stmt = select(CodexEntry).where(CodexEntry.user_id == _owner_id())
     if inp.get("work_id"):
         stmt = (
             stmt.join(CodexAssociation, CodexAssociation.codex_entry_id == CodexEntry.id)

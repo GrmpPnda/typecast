@@ -3,7 +3,7 @@ import { Work, CreateWork, UpdateWork } from "@/types";
 
 export async function listWorks(seriesId?: string): Promise<Work[]> {
   const params = seriesId ? { series_id: seriesId } : {};
-  const { data } = await client.get<Work[]>("/works", { params });
+  const { data } = await client.get<Work[]>("/works/", { params });
   return data;
 }
 
@@ -13,7 +13,7 @@ export async function getWork(id: string): Promise<Work> {
 }
 
 export async function createWork(payload: CreateWork): Promise<Work> {
-  const { data } = await client.post<Work>("/works", payload);
+  const { data } = await client.post<Work>("/works/", payload);
   return data;
 }
 

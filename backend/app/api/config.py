@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import require_admin
 from app.db.engine import get_db
 from app.models.config import AppConfig
 from app.schemas.config import ConfigBulkUpdate, ConfigEntryResponse
@@ -14,6 +15,10 @@ from app.services.crypto import decrypt, encrypt
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Settings hold the install's API keys, and the AWS model listings run with the
+# host's credentials, so only an administrator may change or query them.
+ADMIN = [Depends(require_admin)]
 
 KNOWN_KEYS = {
     "ai_provider": {"is_secret": False, "default": "anthropic"},
@@ -71,7 +76,7 @@ async def list_config(db: AsyncSession = Depends(get_db)):
     return entries
 
 
-@router.put("/", response_model=list[ConfigEntryResponse])
+@router.put("/", response_model=list[ConfigEntryResponse], dependencies=ADMIN)
 async def update_config(
     data: ConfigBulkUpdate,
     db: AsyncSession = Depends(get_db),
@@ -167,7 +172,7 @@ def _paginate_inference_profiles(client) -> list[dict]:
     return profiles
 
 
-@router.get("/bedrock-models")
+@router.get("/bedrock-models", dependencies=ADMIN)
 async def list_bedrock_models(db: AsyncSession = Depends(get_db)):
     """Fetch available text inference profiles from Bedrock, merged with known defaults."""
     import asyncio
@@ -204,7 +209,7 @@ async def list_bedrock_models(db: AsyncSession = Depends(get_db)):
     return result
 
 
-@router.get("/bedrock-image-models")
+@router.get("/bedrock-image-models", dependencies=ADMIN)
 async def list_bedrock_image_models(db: AsyncSession = Depends(get_db)):
     """Fetch available image model inference profiles from Bedrock."""
     import asyncio

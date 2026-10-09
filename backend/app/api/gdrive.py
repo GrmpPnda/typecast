@@ -11,7 +11,9 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.config import set_config_value
+from app.api.deps import require_admin
 from app.db.engine import get_db
+from app.models.user import User
 from app.schemas.gdrive import (
     DriveAuthUrlResponse,
     DriveBackupFile,
@@ -27,6 +29,7 @@ from app.services import gdrive
 from app.services.backup import (
     BACKUP_MIME,
     BackupError,
+    BackupUnsupportedError,
     build_backup_archive,
     is_backup_filename,
     restore_backup_archive,
@@ -46,6 +49,10 @@ from app.services.export import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+# Google redirects the browser here after consent, so the request cannot carry a
+# Bearer token. It is protected instead by the single-use OAuth state that
+# /auth-url issued. Everything on ``router`` is administrator-only (app/main.py).
+public_router = APIRouter()
 
 CALLBACK_PATH = "/api/gdrive/callback"
 
@@ -136,7 +143,7 @@ async def drive_auth_url(
     return DriveAuthUrlResponse(auth_url=url, redirect_uri=_redirect_uri(request))
 
 
-@router.get("/callback", response_class=HTMLResponse)
+@public_router.get("/callback", response_class=HTMLResponse)
 async def drive_callback(
     request: Request,
     code: str | None = Query(None),
@@ -437,6 +444,7 @@ async def _list_backups(creds: gdrive.DriveCredentials) -> list[gdrive.DriveFile
 @router.get("/backups", response_model=list[DriveBackupFile])
 async def list_drive_backups(
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ) -> list[DriveBackupFile]:
     """List backup archives stored in Drive, newest first."""
     creds = await _require_connected(db)
@@ -464,6 +472,7 @@ async def list_drive_backups(
 async def backup_to_drive(
     data: DriveBackupRequest,
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ) -> DriveBackupResponse:
     """Build a backup archive and upload it to the Drive Backups folder.
 
@@ -481,7 +490,14 @@ async def backup_to_drive(
         logger.error("Drive backup folder resolution failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc))
 
-    content, filename = await build_backup_archive()
+    try:
+        content, filename = await build_backup_archive()
+    except BackupUnsupportedError as exc:
+        logger.error("Drive backup unavailable: %s", exc)
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except BackupError as exc:
+        logger.error("Drive backup failed: %s", exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
         uploaded = await gdrive.upload_file(
@@ -556,6 +572,7 @@ async def _prune_backups(
 async def restore_from_drive(
     data: DriveRestoreRequest,
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
 ) -> DriveRestoreResponse:
     """Replace the local database and uploads with a Drive backup.
 
@@ -603,15 +620,21 @@ async def restore_from_drive(
     await db.close()
 
     try:
-        restored = await restore_backup_archive(content)
+        summary = await restore_backup_archive(content)
+    except BackupUnsupportedError as exc:
+        logger.error("Drive restore unavailable: %s", exc)
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
     except BackupError as exc:
         logger.error("Drive restore failed: %s", exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    logger.info("Restored from Drive backup %s (%d upload file(s))", match.name, restored)
+    logger.info(
+        "Restored from Drive backup %s (%d row(s), %d upload file(s))",
+        match.name, summary.total_rows, summary.files_written,
+    )
     return DriveRestoreResponse(
         status="restored",
         name=match.name,
-        files_restored=restored,
+        files_restored=summary.files_written,
         message="Backup restored from Google Drive. Reload the application.",
     )

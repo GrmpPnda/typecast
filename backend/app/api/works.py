@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.api.ownership import require_owned
 from app.db.engine import get_db
 from app.models.user import User
 from app.models.work import Work
@@ -43,7 +44,9 @@ async def create_work(
     data: WorkCreate,
     user: User = Depends(get_current_user),
     repo: SQLAlchemyRepository[Work] = Depends(get_repo),
+    db: AsyncSession = Depends(get_db),
 ):
+    await require_owned(db, user, "series", data.series_id)
     return await repo.create(user_id=user.id, **data.model_dump())
 
 
@@ -52,7 +55,11 @@ async def update_work(
     work_id: uuid.UUID,
     data: WorkUpdate,
     repo: SQLAlchemyRepository[Work] = Depends(get_repo),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
+    # Moving your work into someone else's series would add it to their library.
+    await require_owned(db, user, "series", data.series_id)
     work = await repo.update(work_id, **data.model_dump(exclude_unset=True))
     if work is None:
         raise HTTPException(status_code=404, detail="Work not found")

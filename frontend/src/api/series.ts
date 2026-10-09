@@ -2,7 +2,7 @@ import client from "./client";
 import { Series, CreateSeries, UpdateSeries } from "@/types";
 
 export async function listSeries(): Promise<Series[]> {
-  const { data } = await client.get<Series[]>("/series");
+  const { data } = await client.get<Series[]>("/series/");
   return data;
 }
 
@@ -12,7 +12,7 @@ export async function getSeries(id: string): Promise<Series> {
 }
 
 export async function createSeries(payload: CreateSeries): Promise<Series> {
-  const { data } = await client.post<Series>("/series", payload);
+  const { data } = await client.post<Series>("/series/", payload);
   return data;
 }
 

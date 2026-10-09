@@ -43,7 +43,7 @@ export default function CodexList() {
   const { data: allWorks = [] } = useQuery({
     queryKey: ["works"],
     queryFn: async () => {
-      const { data } = await client.get<Work[]>("/works");
+      const { data } = await client.get<Work[]>("/works/");
       return data;
     },
   });

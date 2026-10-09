@@ -6,11 +6,14 @@ from pathlib import Path
 
 import aiofiles
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import paths
+from app.api.deps import get_current_user
 from app.db.engine import get_db
 from app.models.image import Image
+from app.models.user import User
 from app.models.work import Work
 from app.repositories.sqlalchemy_repo import SQLAlchemyRepository
 from app.schemas.image import ImageResponse, ImageUpdate
@@ -53,10 +56,14 @@ def _image_dimensions(data: bytes, mime: str) -> tuple[int | None, int | None]:
 
 @router.get("/images/all", response_model=list[ImageResponse])
 async def list_all_images(
-    image_repo: SQLAlchemyRepository[Image] = Depends(get_image_repo),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    """List all images across all works."""
-    return await image_repo.get_all()
+    """Every image across the signed-in account's works."""
+    result = await db.execute(
+        select(Image).join(Work, Work.id == Image.work_id).where(Work.user_id == user.id)
+    )
+    return list(result.scalars().all())
 
 
 @router.get("/{work_id}/images", response_model=list[ImageResponse])

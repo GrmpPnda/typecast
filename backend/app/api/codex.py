@@ -11,10 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app import paths
+from app.api.deps import get_current_user
+from app.api.ownership import require_owned
 from app.db.engine import get_db
 from app.models.codex import CodexEntry, EntryType
 from app.models.codex_association import CodexAssociation
 from app.models.codex_image import CodexImage
+from app.models.user import User
 from app.schemas.codex import CodexCreate, CodexResponse, CodexUpdate
 from app.schemas.codex_image import CodexImageResponse, CodexImageUpdate
 
@@ -84,10 +87,15 @@ async def list_codex_entries(
     work_id: uuid.UUID | None = Query(None),
     series_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    stmt = select(CodexEntry).options(
-        selectinload(CodexEntry.associations),
-        selectinload(CodexEntry.images),
+    stmt = (
+        select(CodexEntry)
+        .where(CodexEntry.user_id == user.id)
+        .options(
+            selectinload(CodexEntry.associations),
+            selectinload(CodexEntry.images),
+        )
     )
     if entry_type is not None:
         stmt = stmt.where(CodexEntry.entry_type == entry_type)
@@ -151,8 +159,13 @@ def _sync_associations(
 async def create_codex_entry(
     data: CodexCreate,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
+    # Attaching an entry to a work is a change to that work.
+    await require_owned(db, user, "work", data.work_ids)
+    await require_owned(db, user, "series", data.series_ids)
     entry = CodexEntry(
+        user_id=user.id,
         entry_type=data.entry_type,
         name=data.name,
         description=data.description,
@@ -183,7 +196,10 @@ async def update_codex_entry(
     entry_id: uuid.UUID,
     data: CodexUpdate,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
+    await require_owned(db, user, "work", data.work_ids)
+    await require_owned(db, user, "series", data.series_ids)
     result = await db.execute(
         select(CodexEntry)
         .where(CodexEntry.id == entry_id)

@@ -20,6 +20,8 @@ async def get_current_user(
     """Extract current user from request."""
     if AUTH_MODE == "local" and not NO_AUTOLOGIN:
         return await get_or_create_local_user(db)
+    if AUTH_MODE == "proxy":
+        return await _proxy_user(request, db)
 
     token = _extract_token(request)
     if not token:
@@ -40,6 +42,36 @@ async def get_current_user(
     return user
 
 
+async def require_admin(user: User = Depends(get_current_user)) -> User:
+    """Gate user-management endpoints on the admin flag.
+
+    In local mode the auto-created local user is an admin, so the management UI
+    works in development without switching to multi-user mode.
+    """
+    if not user.is_admin:
+        logger.warning("Admin-only endpoint refused for %s", user.email)
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    return user
+
+
+async def _proxy_user(request: Request, db: AsyncSession) -> User:
+    """The account the authenticating proxy says this request belongs to.
+
+    401 means not signed in (or a token that is invalid or too old); 403 means
+    signed in, but with no Typecast account or a disabled one. The frontend
+    tells the two apart: one sends you to sign in, the other explains.
+    """
+    from app.services import sso
+
+    try:
+        user = await sso.current_user(request.headers, db)
+    except sso.SSOError as exc:
+        logger.debug("Proxy auth refused %s: %s", request.url.path, exc)
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    logger.debug("Proxy-authenticated %s for %s", user.email, request.url.path)
+    return user
+
+
 def _extract_token(request: Request) -> str | None:
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
@@ -53,6 +85,11 @@ async def get_optional_user(
     """Like get_current_user but returns None instead of raising."""
     if AUTH_MODE == "local" and not NO_AUTOLOGIN:
         return await get_or_create_local_user(db)
+    if AUTH_MODE == "proxy":
+        try:
+            return await _proxy_user(request, db)
+        except HTTPException:
+            return None
 
     token = _extract_token(request)
     if not token:

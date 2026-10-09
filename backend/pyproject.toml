@@ -26,13 +26,35 @@ dependencies = [
     "Pillow>=10.0",
     "python-docx>=1.1.0",
     "reportlab>=4.0",
+    # Encrypts stored API keys in app/services/crypto.py. Nothing else pulls it
+    # in, so leaving it undeclared made every container image fail at import
+    # with ModuleNotFoundError while a developer machine that had it installed
+    # by hand worked fine.
+    "cryptography>=42.0",
+    # Imported directly, not just transitively. boto3, weasyprint, and fastapi
+    # each happen to supply one of these today, but a release that drops the
+    # dependency would break us silently.
+    "botocore>=1.34.0",
+    "fonttools>=4.0",
+    "starlette>=0.37",
+    # Runtime dependency, not test-only: app/services/gdrive.py makes every
+    # Google Drive call through it. It used to live in [dev] because the test
+    # client also needs it, which meant the container image never had it.
+    "httpx>=0.26.0",
+    # Verifies identity tokens from the single sign-on provider (proxy auth mode).
+    "PyJWT>=2.8",
 ]
 
 [project.optional-dependencies]
+# Postgres driver for the container deployment. An extra rather than a direct
+# dependency so local SQLite development does not build a compiled package it
+# never loads; the deployment Dockerfile installs ".[postgres]".
+postgres = [
+    "asyncpg>=0.29",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.23.0",
-    "httpx>=0.26.0",
     "ruff>=0.2.0",
 ]
 
@@ -46,6 +68,10 @@ packages = ["app"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+# Alembic writes revisions from its own template (typing.Union, unsorted imports,
+# trailing whitespace). Reformatting generated migrations is churn, and a
+# migration must not be edited after it has been applied anywhere.
+extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]

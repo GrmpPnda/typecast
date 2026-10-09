@@ -7,14 +7,14 @@ export interface ConfigEntry {
 }
 
 export async function listConfig(): Promise<ConfigEntry[]> {
-  const { data } = await client.get<ConfigEntry[]>("/config");
+  const { data } = await client.get<ConfigEntry[]>("/config/");
   return data;
 }
 
 export async function updateConfig(
   entries: { key: string; value: string; is_secret?: boolean }[]
 ): Promise<ConfigEntry[]> {
-  const { data } = await client.put<ConfigEntry[]>("/config", { entries });
+  const { data } = await client.put<ConfigEntry[]>("/config/", { entries });
   return data;
 }
 

@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "@/auth";
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, setupRequired, loading, user, authMode } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -23,6 +23,20 @@ export default function Login() {
       setSubmitting(false);
     }
   };
+
+  // There is nobody to sign in as yet, so signing in is impossible. Without
+  // this a fresh multi-user deployment shows a login form that can never be
+  // satisfied, which was the dead end the setup page exists to remove.
+  if (!loading && setupRequired) return <Navigate to="/setup" replace />;
+
+  // Already signed in, so there is nothing to do here. Cannot loop with App's
+  // redirect: that one fires only when there is no user, this one only when
+  // there is.
+  if (!loading && user) return <Navigate to="/" replace />;
+
+  // Single sign-on: the proxy signs people in, so a password form would only
+  // ever fail. The app shell shows the right screen instead.
+  if (!loading && authMode === "proxy") return <Navigate to="/" replace />;
 
   return (
     <div className="min-h-screen bg-tc-page flex items-center justify-center px-4">

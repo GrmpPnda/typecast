@@ -17,8 +17,13 @@ import CoverProduction from "./pages/CoverProduction";
 import ErrorPage from "./pages/ErrorPage";
 import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
+import Setup from "./pages/Setup";
 
 export const router = createBrowserRouter([
+  {
+    path: "/setup",
+    element: <Setup />,
+  },
   {
     path: "/login",
     element: <Login />,

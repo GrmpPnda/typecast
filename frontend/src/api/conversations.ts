@@ -50,7 +50,7 @@ export async function createConversation(payload: {
   persona?: string;
   title?: string;
 }): Promise<Conversation> {
-  const { data } = await client.post<Conversation>("/conversations", payload);
+  const { data } = await client.post<Conversation>("/conversations/", payload);
   return data;
 }
 

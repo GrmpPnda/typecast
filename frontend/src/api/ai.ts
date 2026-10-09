@@ -56,9 +56,16 @@ export async function streamChat(
 ): Promise<void> {
   const { onToken, onDone, onError, onToolStart, onToolResult, onConversation, onImage } = callbacks;
 
+  // Raw fetch rather than the axios client, because the response is a stream.
+  // That also bypasses the client's token interceptor, so attach it here: in
+  // multi-user mode the endpoint refuses an unauthenticated request.
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const token = localStorage.getItem("token");
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
   const res = await fetch("/api/ai/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(req),
   });
 

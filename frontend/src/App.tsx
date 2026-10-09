@@ -1,4 +1,5 @@
-import { Outlet, useMatch } from "react-router-dom";
+import { Navigate, Outlet, useMatch } from "react-router-dom";
+import SingleSignOnGate from "@/components/SingleSignOnGate";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Bot, MessageSquare } from "lucide-react";
 import Sidebar from "./components/Sidebar";
@@ -43,7 +44,7 @@ function useChapterAndScene(): { chapterId?: string; sceneId?: string } {
 type RightPanel = "ai" | "comments" | null;
 
 export default function App() {
-  const { loading } = useAuth();
+  const { loading, setupRequired, user, authMode } = useAuth();
   const workId = useWorkId();
   const isReadingMode = useIsReadingMode();
   const { chapterId, sceneId } = useChapterAndScene();
@@ -108,6 +109,19 @@ export default function App() {
         <div className="text-tc-muted text-sm">Loading...</div>
       </div>
     );
+  }
+
+  // A deployment with no accounts has to create one before anything else works.
+  if (setupRequired) return <Navigate to="/setup" replace />;
+
+  // Signing out only cleared the stored token, so the shell kept rendering with
+  // no user: the account panel went blank and cached queries let you keep
+  // browsing, because nothing refetched and so nothing hit the 401 interceptor.
+  // In local mode auto-login populates the user, so this never fires there.
+  if (!user) {
+    // Under single sign-on there is no login page of ours to go to.
+    if (authMode === "proxy") return <SingleSignOnGate />;
+    return <Navigate to="/login" replace />;
   }
 
   return (

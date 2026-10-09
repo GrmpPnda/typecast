@@ -4,14 +4,17 @@ import json
 import logging
 import uuid as uuid_mod
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.deps import get_current_user
+from app.api.ownership import require_owned
 from app.db.engine import get_db
 from app.models.conversation import Conversation, ConversationMessage
+from app.models.user import User
 from app.schemas.ai import AIChatRequest
 from app.services.ai import get_ai_provider
 from app.services.ai_tools import TOOL_DEFINITIONS, execute_tool
@@ -191,7 +194,10 @@ async def _get_or_create_conversation(
     conversation_id: uuid_mod.UUID | None,
     work_id: uuid_mod.UUID | None,
     persona: str,
+    user: User,
 ) -> Conversation:
+    # Ownership of conversation_id is checked by the caller. This lookup used to
+    # accept any ID, which loaded another account's chat history into yours.
     if conversation_id:
         result = await db.execute(
             select(Conversation)
@@ -203,6 +209,7 @@ async def _get_or_create_conversation(
             return conv
 
     conv = Conversation(
+        user_id=user.id,
         work_id=work_id,
         persona=persona,
     )
@@ -223,8 +230,29 @@ def _rebuild_history(messages: list[ConversationMessage]) -> list[dict]:
     return history
 
 
+# @mention type -> resource kind. Mentions pull the target's full text into
+# the prompt, so naming someone else's chapter is the same as reading it.
+_MENTION_KINDS = {"codex": "codex_entry", "chapter": "chapter", "scene": "scene", "work": "work"}
+
+
 @router.post("/chat")
-async def ai_chat(req: AIChatRequest, db: AsyncSession = Depends(get_db)):
+async def ai_chat(
+    req: AIChatRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # Checked before the provider, so the answer is the same whether or not AI
+    # is configured, and before anything is read into the prompt.
+    await require_owned(db, user, "work", req.work_id)
+    await require_owned(db, user, "chapter", req.chapter_id)
+    await require_owned(db, user, "scene", req.scene_id)
+    await require_owned(db, user, "conversation", req.conversation_id)
+    for mention in req.mentions:
+        kind = _MENTION_KINDS.get(mention.type)
+        if kind is None:
+            raise HTTPException(status_code=422, detail=f"Unknown mention type {mention.type!r}")
+        await require_owned(db, user, kind, mention.id)
+
     try:
         provider = await get_ai_provider(db)
     except ValueError as exc:
@@ -236,7 +264,7 @@ async def ai_chat(req: AIChatRequest, db: AsyncSession = Depends(get_db)):
     persona = req.persona or "author"
 
     conv = await _get_or_create_conversation(
-        db, req.conversation_id, req.work_id, persona,
+        db, req.conversation_id, req.work_id, persona, user,
     )
 
     if persona == "auto":
@@ -365,7 +393,7 @@ async def ai_chat(req: AIChatRequest, db: AsyncSession = Depends(get_db)):
                 for tc in result.tool_calls:
                     yield _sse("tool_start", {"tool": tc.name, "input": tc.input})
 
-                    tool_result = await execute_tool(db, tc.name, tc.input)
+                    tool_result = await execute_tool(db, tc.name, tc.input, user)
 
                     # Send a lightweight version to the frontend (no base64 in SSE)
                     display_result = {

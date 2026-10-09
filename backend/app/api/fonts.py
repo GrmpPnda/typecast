@@ -8,12 +8,17 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import paths
+from app.api.deps import require_admin
 from app.db.engine import get_db
 from app.models.font import Font
 from app.repositories.sqlalchemy_repo import SQLAlchemyRepository
 from app.schemas.font import FontResponse
 
 router = APIRouter()
+
+# Fonts are install-wide: any account may use them, only an administrator may
+# add, rename, or remove one, since that changes every account's exports.
+ADMIN = [Depends(require_admin)]
 
 UPLOAD_DIR = paths.UPLOAD_DIR
 ALLOWED_EXTENSIONS = {".ttf", ".otf", ".woff", ".woff2"}
@@ -28,6 +33,7 @@ def _extract_font_info(data: bytes, ext: str) -> tuple[str, str]:
     """Extract family name and style from font file. Returns (family_name, style)."""
     try:
         import io
+
         from fontTools.ttLib import TTFont
 
         font = TTFont(io.BytesIO(data))
@@ -63,7 +69,7 @@ async def list_fonts(
     return await font_repo.get_all()
 
 
-@router.post("", response_model=FontResponse, status_code=201)
+@router.post("", response_model=FontResponse, status_code=201, dependencies=ADMIN)
 async def upload_font(
     file: UploadFile,
     font_repo: SQLAlchemyRepository[Font] = Depends(get_font_repo),
@@ -105,7 +111,7 @@ async def upload_font(
     return font
 
 
-@router.put("/{font_id}", response_model=FontResponse)
+@router.put("/{font_id}", response_model=FontResponse, dependencies=ADMIN)
 async def update_font(
     font_id: uuid.UUID,
     family_name: str | None = None,
@@ -125,7 +131,7 @@ async def update_font(
     return font
 
 
-@router.delete("/{font_id}", status_code=204)
+@router.delete("/{font_id}", status_code=204, dependencies=ADMIN)
 async def delete_font(
     font_id: uuid.UUID,
     font_repo: SQLAlchemyRepository[Font] = Depends(get_font_repo),

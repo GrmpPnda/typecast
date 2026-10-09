@@ -10,6 +10,7 @@ unhealthy. Nothing in the test suite noticed either.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 from urllib.parse import urlparse
@@ -97,6 +98,147 @@ def test_healthcheck_targets_a_real_route(source):
     assert [p for p in checked if p not in routes] == []
 
 
+def test_nginx_proxies_every_path_the_backend_serves():
+    """The compose frontend is nginx, so anything it does not proxy 404s.
+
+    ``/uploads`` was missing: the backend hands out absolute "/uploads/..."
+    paths from a StaticFiles mount, and the Vite dev server proxies that prefix,
+    so every cover, gallery image, codex image, and custom font worked in
+    development and broke in the container.
+    """
+    nginx = (REPO_ROOT / "frontend" / "nginx.conf").read_text()
+    proxied = set(re.findall(r"location\s+(/[a-z]+)/\s*\{[^}]*proxy_pass", nginx, re.S))
+
+    app = create_app()
+    mounted = {
+        route.path
+        for route in app.routes
+        if type(route).__name__ == "Mount" and route.path not in ("", "/")
+    }
+    api_prefixes = {"/api"}
+
+    missing = sorted((mounted | api_prefixes) - proxied)
+    assert missing == [], (
+        f"nginx.conf does not proxy {missing}; requests to those paths will be "
+        "answered by the SPA fallback instead of the backend."
+    )
+
+
+def test_nginx_forwards_the_host_with_its_port():
+    """``$host`` drops the port; the backend builds redirects from what it gets.
+
+    With ``$host`` every trailing-slash redirect pointed at port 80, so behind
+    nginx on any other port the browser's follow-up request went nowhere. The
+    library, codex, and every create call failed, and an empty library looked
+    exactly like a working one with no data.
+    """
+    nginx = (REPO_ROOT / "frontend" / "nginx.conf").read_text()
+    hosts = re.findall(r"proxy_set_header\s+Host\s+(\$\w+);", nginx)
+    assert hosts, "nginx.conf must set the Host header for proxied requests"
+    assert set(hosts) == {"$http_host"}, f"use $http_host, not {sorted(set(hosts))}"
+    assert "X-Forwarded-Proto $scheme" not in nginx, (
+        "overwriting X-Forwarded-Proto with this hop's scheme turns an upstream "
+        "https into http"
+    )
+
+
+def test_frontend_never_relies_on_a_trailing_slash_redirect():
+    """Calls must hit the canonical URL, so no proxy can break them.
+
+    A route registered as "/" on a router mounted at "/api/works" lives at
+    "/api/works/"; calling "/works" costs a 307 whose Location depends on every
+    proxy in between forwarding the host correctly.
+    """
+    app = create_app()
+    root_routes = {
+        route.path[len("/api") : -1]
+        for route in app.routes
+        if getattr(route, "path", "").startswith("/api/") and route.path.endswith("/")
+    }
+    root_routes.discard("")
+
+    call = re.compile(
+        r"client\.(?:get|post|put|patch|delete)(?:<[^>]*>)?\(\s*[\"'`](/[^\"'`?$]*)"
+    )
+    offenders = []
+    for source in sorted((REPO_ROOT / "frontend" / "src").rglob("*.ts*")):
+        for lineno, line in enumerate(source.read_text().splitlines(), 1):
+            for path in call.findall(line):
+                if path in root_routes:
+                    rel = source.relative_to(REPO_ROOT)
+                    offenders.append(f"{rel}:{lineno} calls {path!r}, should be {path + '/'!r}")
+    assert offenders == [], "\n".join(offenders)
+
+
+def test_nginx_accepts_bodies_larger_than_its_default():
+    """Cover images, fonts, and backup restores all exceed nginx's 1m default."""
+    nginx = (REPO_ROOT / "frontend" / "nginx.conf").read_text()
+    match = re.search(r"client_max_body_size\s+(\d+)([kmg])", nginx, re.I)
+    assert match, "nginx.conf must raise client_max_body_size above the 1m default"
+    size, unit = int(match.group(1)), match.group(2).lower()
+    megabytes = size * {"k": 1 / 1024, "m": 1, "g": 1024}[unit]
+    assert megabytes >= 50, f"client_max_body_size is only {megabytes}m"
+
+
+def test_every_third_party_import_is_a_declared_dependency():
+    """A container installs from pyproject.toml and nothing else.
+
+    ``cryptography`` was imported by app/services/crypto.py but never declared,
+    so every image built from this file died at import with ModuleNotFoundError
+    while a developer machine that happened to have it installed worked fine.
+    Relying on a transitive dependency is the same bug waiting to happen: the
+    package that supplies it can drop it in any release.
+    """
+    import sys
+    import tomllib
+
+    # Import name differs from the distribution name for these.
+    distribution_of = {
+        "PIL": "pillow",
+        "bs4": "beautifulsoup4",
+        "docx": "python-docx",
+        "dotenv": "python-dotenv",
+        "fontTools": "fonttools",
+        "jose": "python-jose",
+        "jwt": "pyjwt",
+        "multipart": "python-multipart",
+        "pydantic_settings": "pydantic-settings",
+        "yaml": "pyyaml",
+    }
+
+    imported: set[str] = set()
+    for source in (REPO_ROOT / "backend" / "app").rglob("*.py"):
+        for node in ast.walk(ast.parse(source.read_text())):
+            if isinstance(node, ast.Import):
+                imported.update(a.name.split(".")[0] for a in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                imported.add(node.module.split(".")[0])
+
+    project = tomllib.loads((REPO_ROOT / "backend" / "pyproject.toml").read_text())["project"]
+    # Only what a deployment installs counts. The image runs ".[postgres]", so a
+    # runtime import satisfied solely by [dev] is still missing in production:
+    # that is exactly how httpx, which every Google Drive call goes through,
+    # ended up absent from the container while the test suite passed.
+    extras = project.get("optional-dependencies", {})
+    specs = list(project["dependencies"]) + list(extras.get("postgres", []))
+    declared = {
+        spec.split(">")[0].split("<")[0].split("[")[0].split("=")[0].strip().lower()
+        for spec in specs
+    }
+
+    undeclared = sorted(
+        name
+        for name in imported
+        if name not in sys.stdlib_module_names
+        and name != "app"
+        and distribution_of.get(name, name).lower() not in declared
+    )
+    assert undeclared == [], (
+        f"imported but not declared in pyproject.toml: {undeclared}. "
+        "The app will fail at import inside a container."
+    )
+
+
 def test_env_example_is_loadable_as_a_dotenv():
     """Settings forbids extra keys, so a stale key in the template is a startup crash.
 
@@ -112,3 +254,119 @@ def test_env_example_is_loadable_as_a_dotenv():
         k for k in keys if k not in Settings.model_fields and not k.startswith("TYPECAST_")
     )
     assert unknown == [], f".env.example sets keys the backend rejects: {unknown}"
+
+
+# --- TLS -----------------------------------------------------------------------------
+
+
+def _nginx_servers() -> list[str]:
+    """The text of each top-level server block in nginx.conf."""
+    text = (REPO_ROOT / "frontend" / "nginx.conf").read_text()
+    blocks, depth, start = [], 0, None
+    for match in re.finditer(r"server\s*\{|\{|\}", text):
+        token = match.group(0)
+        if token.startswith("server") and depth == 0:
+            start, depth = match.start(), 1
+        elif token == "{" and start is not None:
+            depth += 1
+        elif token == "}" and start is not None:
+            depth -= 1
+            if depth == 0:
+                blocks.append(text[start : match.end()])
+                start = None
+    return blocks
+
+
+def test_nginx_serves_the_app_only_over_tls():
+    servers = _nginx_servers()
+    tls = [s for s in servers if re.search(r"listen\s+443\s+ssl", s)]
+    plain = [s for s in servers if re.search(r"listen\s+80\b", s)]
+    assert len(tls) == 1, "exactly one TLS server block"
+    assert "ssl_certificate " in tls[0] and "ssl_certificate_key" in tls[0]
+    assert "TLSv1.2 TLSv1.3" in tls[0], "only TLS 1.2 and 1.3"
+    assert "proxy_pass" in tls[0], "the app is served from the TLS server"
+    # Plain HTTP must only redirect; serving anything there defeats the point.
+    assert len(plain) == 1 and "proxy_pass" not in plain[0]
+    assert re.search(r"return\s+301\s+https://", plain[0])
+
+
+def test_nginx_does_not_send_hsts():
+    """Over an SSH tunnel the host is "localhost": a trusted self-signed cert plus
+    HSTS would force HTTPS on every localhost port, breaking plain-HTTP dev servers."""
+    nginx = (REPO_ROOT / "frontend" / "nginx.conf").read_text()
+    assert not re.search(r"add_header\s+Strict-Transport-Security", nginx)
+
+
+def test_compose_publishes_only_the_tls_frontend():
+    """A published backend port bypasses TLS and lets clients spoof X-Forwarded-*,
+    which uvicorn trusts because it runs with --forwarded-allow-ips."""
+    services = _compose()["services"]
+    assert "ports" not in services["backend"], "the backend must not be published"
+    published = " ".join(services["frontend"]["ports"])
+    assert ":443" in published
+    assert any(":/etc/nginx/certs" in v for v in services["frontend"]["volumes"])
+
+
+def test_the_frontend_image_can_make_its_own_certificate():
+    dockerfile = (REPO_ROOT / "frontend" / "Dockerfile").read_text()
+    script = REPO_ROOT / "frontend" / "docker-entrypoint.d" / "40-typecast-tls.sh"
+    assert "apk add --no-cache openssl" in dockerfile, "nginx:alpine has no openssl"
+    assert "/etc/nginx/templates/default.conf.template" in dockerfile, (
+        "nginx.conf must be a template so ${TYPECAST_HTTPS_PORT} is substituted"
+    )
+    assert "40-typecast-tls.sh" in dockerfile
+    text = script.read_text()
+    assert "subjectAltName" in text, "browsers ignore CN; the name must be in a SAN"
+    assert script.stat().st_mode & 0o111, "entrypoint scripts must be executable"
+
+
+@pytest.mark.parametrize("scheme", ["http", "https"])
+async def test_force_https_redirects_except_for_health_probes(monkeypatch, scheme):
+    from httpx import ASGITransport, AsyncClient
+
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module, "FORCE_HTTPS", True)
+    application = main_module.create_app()
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url=f"{scheme}://typecast.example"
+    ) as ac:
+        page = await ac.get("/api/auth/mode")
+        health = await ac.get("/api/health")
+
+    assert health.status_code == 200, "probes arrive over plain HTTP and must not bounce"
+    if scheme == "http":
+        assert page.status_code == 308, "308 keeps the method, so a POST stays a POST"
+        assert page.headers["location"].startswith("https://typecast.example/")
+        assert "strict-transport-security" not in page.headers
+    else:
+        assert page.status_code == 200
+        assert "max-age=" in page.headers["strict-transport-security"]
+
+
+async def test_the_single_container_image_serves_frontend_routes(tmp_path, monkeypatch):
+    """A refresh or bookmark of /settings must load the app, not a JSON 404.
+
+    Plain StaticFiles had no fallback. Azure runs this image, so every deep link
+    and every refresh off the home page was broken there.
+    """
+    from httpx import ASGITransport, AsyncClient
+
+    import app.main as main_module
+
+    (tmp_path / "index.html").write_text("<html>typecast spa</html>")
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "app.js").write_text("console.log(1)")
+    monkeypatch.setattr(main_module, "STATIC_DIR", tmp_path)
+
+    application = main_module.create_app()
+    async with AsyncClient(transport=ASGITransport(app=application), base_url="http://t") as ac:
+        for route in ("/", "/settings", "/work/123/chapter/456"):
+            resp = await ac.get(route)
+            assert resp.status_code == 200 and "typecast spa" in resp.text, route
+        assert (await ac.get("/assets/app.js")).text == "console.log(1)"
+        missing_asset = await ac.get("/assets/missing.js")
+        assert missing_asset.status_code == 200, "unknown non-API paths fall back"
+        for api_typo in ("/api/nope", "/uploads/nope.png"):
+            resp = await ac.get(api_typo)
+            assert resp.status_code == 404, f"{api_typo} must not be answered with a page"

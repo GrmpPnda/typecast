@@ -88,18 +88,14 @@ def _stub_archive(monkeypatch, *, filename="typecast-backup-20260805-120000.zip"
 # --------------------------------------------------------------------------
 
 
-async def test_archive_contains_database_and_uploads(data_dir):
-    content, filename = await backup_service.build_backup_archive()
-
-    assert filename.startswith("typecast-backup-")
-    assert filename.endswith(".zip")
-
-    with zipfile.ZipFile(io.BytesIO(content)) as zf:
-        names = set(zf.namelist())
-        assert "typecast.db" in names
-        assert "uploads/images/work-1/cover.png" in names
-        assert "uploads/fonts/serif.ttf" in names
-        assert zf.read("typecast.db") == b"SQLite format 3\x00fake-database"
+def _legacy_archive(**entries) -> bytes:
+    """A version 1 archive: a SQLite file plus uploads. Existing Drive backups."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("typecast.db", entries.pop("db", b"SQLite format 3\x00archived-database"))
+        for name, data in entries.items():
+            zf.writestr(name.replace("__", "/"), data)
+    return buf.getvalue()
 
 
 def test_data_dir_honours_the_env_var(tmp_path):
@@ -112,28 +108,27 @@ def test_data_dir_falls_back_to_the_backend_directory():
     assert backup_service.resolve_data_dir({}) == backup_service.BACKEND_DIR
 
 
-async def test_restore_replaces_database_and_uploads(data_dir):
-    content, _ = await backup_service.build_backup_archive()
+async def test_legacy_archive_still_restores_on_sqlite(data_dir):
+    """Archives made before format version 2 must stay restorable here.
 
-    # Diverge the live state from the archive, then restore over it.
-    (data_dir / "typecast.db").write_bytes(b"changed-database")
-    (data_dir / "uploads" / "images" / "work-1" / "cover.png").write_bytes(b"changed")
+    The archive-format tests themselves live in test_archive.py.
+    """
     (data_dir / "uploads" / "stale.txt").write_bytes(b"should-not-survive")
+    content = _legacy_archive(uploads__images__work_1__cover_png=b"png-bytes")
 
-    restored = await backup_service.restore_backup_archive(content)
+    summary = await backup_service.restore_backup_archive(content)
 
-    assert restored == 2
-    assert (data_dir / "typecast.db").read_bytes() == b"SQLite format 3\x00fake-database"
-    assert (data_dir / "uploads" / "images" / "work-1" / "cover.png").read_bytes() == b"png-bytes"
+    assert summary.files_written == 1
+    assert (data_dir / "typecast.db").read_bytes() == b"SQLite format 3\x00archived-database"
     assert not (data_dir / "uploads" / "stale.txt").exists()
 
 
-async def test_restore_rejects_an_archive_without_a_database(data_dir):
+async def test_restore_rejects_a_zip_that_is_not_a_typecast_archive(data_dir):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("uploads/thing.txt", "x")
 
-    with pytest.raises(backup_service.BackupError, match="typecast.db"):
+    with pytest.raises(backup_service.BackupError, match="not a Typecast archive"):
         await backup_service.restore_backup_archive(buf.getvalue())
 
     # The existing database must be untouched by a rejected archive.
@@ -145,16 +140,13 @@ async def test_restore_rejects_a_non_zip(data_dir):
         await backup_service.restore_backup_archive(b"not a zip at all")
 
 
-async def test_restore_skips_path_traversal_entries(data_dir):
+async def test_legacy_restore_skips_path_traversal_entries(data_dir):
     """A hand-edited archive must not write outside the uploads directory."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w") as zf:
-        zf.writestr("typecast.db", "db")
-        zf.writestr("uploads/../../escaped.txt", "pwned")
+    content = _legacy_archive(**{"uploads/../../escaped.txt": b"pwned"})
 
-    restored = await backup_service.restore_backup_archive(buf.getvalue())
+    summary = await backup_service.restore_backup_archive(content)
 
-    assert restored == 0
+    assert summary.files_written == 0
     assert not (data_dir.parent / "escaped.txt").exists()
 
 
@@ -455,7 +447,7 @@ async def test_restore_requires_explicit_confirmation(client, db_session, monkey
     async def fake_restore(content):
         nonlocal called
         called = True
-        return 0
+        return backup_service.Summary(mode="replace")
 
     monkeypatch.setattr(gdrive_api, "restore_backup_archive", fake_restore)
 
@@ -473,7 +465,7 @@ async def test_restore_rejects_a_file_that_is_not_a_backup(client, db_session, m
     async def fake_restore(content):
         nonlocal called
         called = True
-        return 0
+        return backup_service.Summary(mode="replace")
 
     monkeypatch.setattr(gdrive_api, "restore_backup_archive", fake_restore)
 
@@ -498,7 +490,7 @@ async def test_restore_downloads_and_applies_the_archive(client, db_session, mon
 
     async def fake_restore(content):
         seen["content"] = content
-        return 7
+        return backup_service.Summary(mode="replace", files_written=7)
 
     monkeypatch.setattr(gdrive_api, "restore_backup_archive", fake_restore)
 

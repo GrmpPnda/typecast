@@ -17,6 +17,10 @@ import {
   Check,
   Palette,
   Cloud,
+  KeyRound,
+  Shield,
+  UserPlus,
+  Users,
 } from "lucide-react";
 import {
   listProfiles,
@@ -26,7 +30,7 @@ import {
 } from "@/api/profiles";
 import { listFonts, uploadFont, deleteFont } from "@/api/fonts";
 import { listConfig, updateConfig, fetchBedrockModels, fetchBedrockImageModels, BedrockModel } from "@/api/config";
-import { downloadBackup, restoreBackup } from "@/api/backup";
+import { downloadBackup, importBackup, restoreBackup } from "@/api/backup";
 import { listVoices, PollyVoice } from "@/api/narration";
 import {
   getDriveStatus,
@@ -36,6 +40,16 @@ import {
   backupToDrive,
   restoreFromDrive,
 } from "@/api/gdrive";
+import { changeMyPassword } from "@/api/auth";
+import {
+  listUsers,
+  createUser,
+  updateUser,
+  resetUserPassword,
+  deleteUser,
+  ManagedUser,
+} from "@/api/users";
+import { useAuth } from "@/auth";
 import { useState, useEffect, useRef } from "react";
 import { Profile, CreateProfile, UpdateProfile, ProfileFormat, HeaderContent, HeaderPosition, TextAlign, Font } from "@/types";
 import FontSelect, { FontSizeInput, useFontFaceStyles } from "@/components/FontSelect";
@@ -1456,6 +1470,13 @@ function NarrationConfigSection() {
 }
 
 export default function Settings() {
+  // Install-wide settings (profiles, fonts, AI and narration configuration,
+  // Google Drive, backups) are administrator-only on the server; show them only
+  // to administrators instead of letting every save fail with 403. In local
+  // mode the single user is an administrator, so nothing is hidden.
+  const { user: currentUser } = useAuth();
+  const isAdmin = !!currentUser?.is_admin;
+
   const queryClient = useQueryClient();
   const { data: profiles = [] } = useQuery({
     queryKey: ["profiles"],
@@ -1603,9 +1624,12 @@ export default function Settings() {
     <div className="p-8 max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold mb-2">Settings</h1>
       <p className="text-sm text-tc-muted mb-8">
-        Manage export profiles, reader profiles, and AI configuration.
+        {isAdmin
+          ? "Manage export profiles, reader profiles, and AI configuration."
+          : "Manage your account and appearance. Install-wide settings are managed by an administrator."}
       </p>
 
+      {isAdmin && (<>
       <section className="mb-10">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">Export / Reader Profiles</h2>
@@ -1763,14 +1787,425 @@ export default function Settings() {
         </div>
       </section>
 
+      </>)}
+
+      <AccountSection />
+      <UsersSection />
       <ThemeSection />
-      <FontsSection />
-      <EditorConfigSection />
-      <AIConfigSection />
-      <NarrationConfigSection />
-      <GoogleDriveSection />
-      <BackupRestoreSection />
+      {isAdmin && (
+        <>
+          <FontsSection />
+          <EditorConfigSection />
+          <AIConfigSection />
+          <NarrationConfigSection />
+          <GoogleDriveSection />
+          <BackupRestoreSection />
+        </>
+      )}
     </div>
+  );
+}
+
+/** Extract a readable message from an axios error, falling back to a default. */
+function apiError(err: unknown, fallback: string): string {
+  const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data
+    ?.detail;
+  return typeof detail === "string" ? detail : fallback;
+}
+
+function AccountSection() {
+  const { user, authMode } = useAuth();
+  const sso = authMode === "proxy";
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  const mutation = useMutation({
+    mutationFn: () => changeMyPassword(current, next),
+    onSuccess: () => {
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+      setError(null);
+      setDone(true);
+    },
+    onError: (err) => {
+      setDone(false);
+      setError(apiError(err, "Could not change the password."));
+    },
+  });
+
+  const mismatch = confirm.length > 0 && next !== confirm;
+  const tooShort = next.length > 0 && next.length < 8;
+  const canSubmit =
+    current.length > 0 && next.length >= 8 && next === confirm && !mutation.isPending;
+
+  return (
+    <section className="mb-10">
+      <div className="flex items-center gap-2 mb-4">
+        <KeyRound size={18} className="text-tc-muted" />
+        <h2 className="text-lg font-semibold">Account</h2>
+      </div>
+      <div className="bg-tc-overlay/50 border border-tc-subtle rounded-lg p-6 space-y-4">
+        <p className="text-xs text-tc-muted">
+          Signed in{sso && " with single sign-on"} as{" "}
+          <span className="text-tc-secondary">{user?.email}</span>
+          {user?.is_admin && " (administrator)"}
+        </p>
+        {sso && (
+          <p className="text-xs text-tc-muted">
+            Your password is managed by your organisation&apos;s sign-in, not by Typecast.
+          </p>
+        )}
+
+        {!sso && <form
+          className="space-y-3 max-w-sm"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (canSubmit) mutation.mutate();
+          }}
+        >
+          <div>
+            <label className="block text-xs text-tc-muted mb-1">Current password</label>
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+              className="w-full px-3 py-2 bg-tc-hover border border-tc-strong rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-tc-accent"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-tc-muted mb-1">New password</label>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              className="w-full px-3 py-2 bg-tc-hover border border-tc-strong rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-tc-accent"
+            />
+            {tooShort && (
+              <p className="text-xs text-tc-error mt-1">Use at least 8 characters.</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs text-tc-muted mb-1">Confirm new password</label>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              className="w-full px-3 py-2 bg-tc-hover border border-tc-strong rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-tc-accent"
+            />
+            {mismatch && (
+              <p className="text-xs text-tc-error mt-1">Passwords do not match.</p>
+            )}
+          </div>
+
+          {error && <p className="text-xs text-tc-error">{error}</p>}
+          {done && <p className="text-xs text-tc-success">Password changed.</p>}
+
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="flex items-center gap-2 px-3 py-2 bg-tc-accent hover:bg-tc-accent-hover disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+          >
+            <Save size={14} />
+            {mutation.isPending ? "Changing..." : "Change password"}
+          </button>
+        </form>}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Admin-only account management. Self-service signup is disabled on the server,
+ * so this is the only way accounts are created after the first admin.
+ */
+function UsersSection() {
+  const { user, authMode } = useAuth();
+  // Single sign-on: accounts link to a person's identity the first time they
+  // sign in, matched by email, so there is no password to set or reset.
+  const sso = authMode === "proxy";
+  const queryClient = useQueryClient();
+  const [showCreate, setShowCreate] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    email: "",
+    username: "",
+    display_name: "",
+    password: "",
+    is_admin: false,
+  });
+
+  const { data: users = [], isLoading } = useQuery({
+    queryKey: ["users"],
+    queryFn: listUsers,
+    enabled: !!user?.is_admin,
+  });
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["users"] });
+  const fail = (fallback: string) => (err: unknown) => setError(apiError(err, fallback));
+
+  const createMutation = useMutation({
+    mutationFn: () => createUser(sso ? { ...form, password: undefined } : form),
+    onSuccess: () => {
+      invalidate();
+      setShowCreate(false);
+      setError(null);
+      setForm({ email: "", username: "", display_name: "", password: "", is_admin: false });
+    },
+    onError: fail("Could not create the account."),
+  });
+
+  const patchMutation = useMutation({
+    mutationFn: ({ id, updates }: { id: string; updates: Parameters<typeof updateUser>[1] }) =>
+      updateUser(id, updates),
+    onSuccess: () => {
+      invalidate();
+      setError(null);
+    },
+    onError: fail("Could not update the account."),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: ({ id, purge }: { id: string; purge: boolean }) => deleteUser(id, purge),
+    onSuccess: () => {
+      invalidate();
+      setError(null);
+    },
+    onError: fail("Could not delete the account."),
+  });
+
+  const resetMutation = useMutation({
+    mutationFn: ({ id, password }: { id: string; password: string }) =>
+      resetUserPassword(id, password),
+    onSuccess: () => setError(null),
+    onError: fail("Could not reset the password."),
+  });
+
+  // Hidden entirely for non-admins rather than shown disabled: the endpoints
+  // return 403 and an empty table would just look broken.
+  if (!user?.is_admin) return null;
+
+  const handleDelete = (target: ManagedUser) => {
+    if (!window.confirm(`Delete the account ${target.email}?`)) return;
+    deleteMutation.mutate(
+      { id: target.id, purge: false },
+      {
+        onError: (err) => {
+          const detail = apiError(err, "Could not delete the account.");
+          // The server refuses when the account owns content, because the
+          // foreign keys cascade. Make the consequence explicit before retrying.
+          if (detail.includes("purge=true")) {
+            if (window.confirm(`${detail}\n\nPermanently delete the account AND its content?`)) {
+              deleteMutation.mutate({ id: target.id, purge: true });
+              return;
+            }
+            setError(null);
+            return;
+          }
+          setError(detail);
+        },
+      }
+    );
+  };
+
+  const handleReset = (target: ManagedUser) => {
+    const password = window.prompt(`New password for ${target.email} (at least 8 characters):`);
+    if (!password) return;
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    resetMutation.mutate({ id: target.id, password });
+  };
+
+  return (
+    <section className="mb-10">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Users size={18} className="text-tc-muted" />
+          <h2 className="text-lg font-semibold">Users</h2>
+        </div>
+        <button
+          onClick={() => { setShowCreate((v) => !v); setError(null); }}
+          className="flex items-center gap-2 px-3 py-2 bg-tc-accent hover:bg-tc-accent-hover rounded-lg text-sm font-medium transition-colors"
+        >
+          <UserPlus size={14} />
+          Add user
+        </button>
+      </div>
+
+      <div className="bg-tc-overlay/50 border border-tc-subtle rounded-lg p-6 space-y-4">
+        <p className="text-xs text-tc-muted">
+          {sso
+            ? "Add people by the email they sign in with; their account links the first time they sign in. "
+            : "Self-service registration is disabled, so accounts are created here. "}
+          Deactivating an account revokes access immediately while keeping its work; deleting one
+          destroys everything it owns.
+        </p>
+
+        {error && <p className="text-xs text-tc-error">{error}</p>}
+
+        {showCreate && (
+          <form
+            className="grid grid-cols-2 gap-3 p-4 bg-tc-hover/40 border border-tc-subtle rounded-lg"
+            onSubmit={(e) => {
+              e.preventDefault();
+              createMutation.mutate();
+            }}
+          >
+            <input
+              placeholder="Email"
+              type="email"
+              required
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              className="px-3 py-2 bg-tc-hover border border-tc-strong rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-tc-accent"
+            />
+            <input
+              placeholder="Username"
+              required
+              minLength={3}
+              value={form.username}
+              onChange={(e) => setForm({ ...form, username: e.target.value })}
+              className="px-3 py-2 bg-tc-hover border border-tc-strong rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-tc-accent"
+            />
+            <input
+              placeholder="Display name"
+              required
+              value={form.display_name}
+              onChange={(e) => setForm({ ...form, display_name: e.target.value })}
+              className="px-3 py-2 bg-tc-hover border border-tc-strong rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-tc-accent"
+            />
+            {!sso && (
+              <input
+                placeholder="Password (8+ characters)"
+                type="password"
+                required
+                minLength={8}
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                className="px-3 py-2 bg-tc-hover border border-tc-strong rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-tc-accent"
+              />
+            )}
+            <label className="col-span-2 flex items-center gap-2 text-sm text-tc-secondary">
+              <input
+                type="checkbox"
+                checked={form.is_admin}
+                onChange={(e) => setForm({ ...form, is_admin: e.target.checked })}
+                className="rounded border-tc-strong bg-tc-hover text-tc-accent focus:ring-tc-accent focus:ring-offset-0"
+              />
+              Administrator (can manage users)
+            </label>
+            <div className="col-span-2 flex gap-2">
+              <button
+                type="submit"
+                disabled={createMutation.isPending}
+                className="px-3 py-2 bg-tc-accent hover:bg-tc-accent-hover disabled:opacity-50 rounded-lg text-sm font-medium"
+              >
+                {createMutation.isPending ? "Creating..." : "Create"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreate(false)}
+                className="px-3 py-2 bg-tc-hover hover:bg-tc-overlay rounded-lg text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+
+        {isLoading ? (
+          <p className="text-sm text-tc-muted">Loading...</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-tc-muted border-b border-tc-subtle">
+                <th className="pb-2 font-medium">User</th>
+                <th className="pb-2 font-medium">Status</th>
+                <th className="pb-2 font-medium text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id} className="border-b border-tc-subtle/50 last:border-0">
+                  <td className="py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-tc-secondary">{u.display_name}</span>
+                      {u.is_admin && (
+                        <span title="Administrator">
+                          <Shield size={12} className="text-tc-accent" />
+                        </span>
+                      )}
+                      {u.id === user?.id && (
+                        <span className="text-xs text-tc-muted">(you)</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-tc-muted">
+                      {u.email} &middot; @{u.username}
+                    </div>
+                  </td>
+                  <td className="py-3">
+                    <span
+                      className={
+                        u.is_active ? "text-xs text-tc-success" : "text-xs text-tc-error"
+                      }
+                    >
+                      {u.is_active ? "Active" : "Disabled"}
+                    </span>
+                    {sso && !u.sso_linked && (
+                      <div className="text-xs text-tc-muted">Not signed in yet</div>
+                    )}
+                  </td>
+                  <td className="py-3">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() =>
+                          patchMutation.mutate({ id: u.id, updates: { is_admin: !u.is_admin } })
+                        }
+                        className="px-2 py-1 bg-tc-hover hover:bg-tc-overlay rounded text-xs"
+                      >
+                        {u.is_admin ? "Revoke admin" : "Make admin"}
+                      </button>
+                      <button
+                        onClick={() =>
+                          patchMutation.mutate({ id: u.id, updates: { is_active: !u.is_active } })
+                        }
+                        className="px-2 py-1 bg-tc-hover hover:bg-tc-overlay rounded text-xs"
+                      >
+                        {u.is_active ? "Deactivate" : "Reactivate"}
+                      </button>
+                      {!sso && (
+                        <button
+                          onClick={() => handleReset(u)}
+                          title="Set a new password"
+                          className="p-1 text-tc-muted hover:text-tc-secondary rounded"
+                        >
+                          <KeyRound size={14} />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDelete(u)}
+                        title="Delete account"
+                        className="p-1 text-tc-muted hover:text-tc-error rounded"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -2077,11 +2512,30 @@ function ThemeSection() {
   );
 }
 
+/** "3 works, 42 chapters, 121 scenes" from a load summary, biggest things first. */
+function describeRows(rows: Record<string, number>): string {
+  const labels: [string, string][] = [
+    ["works", "work"], ["series", "series"], ["chapters", "chapter"], ["scenes", "scene"],
+    ["codex_entries", "codex entry"], ["images", "image"], ["conversations", "conversation"],
+  ];
+  const parts = labels
+    .filter(([table]) => (rows[table] ?? 0) > 0)
+    .map(([table, noun]) => {
+      const n = rows[table];
+      const plural = n === 1 || noun === "series" ? noun : noun.replace(/y$/, "ie") + "s";
+      return `${n} ${plural}`;
+    });
+  return parts.length ? parts.join(", ") : "nothing";
+}
+
 function BackupRestoreSection() {
+  const queryClient = useQueryClient();
   const [downloading, setDownloading] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const importRef = useRef<HTMLInputElement>(null);
 
   const handleBackup = async () => {
     setDownloading(true);
@@ -2089,8 +2543,8 @@ function BackupRestoreSection() {
     try {
       await downloadBackup();
       setMessage({ type: "success", text: "Backup downloaded." });
-    } catch {
-      setMessage({ type: "error", text: "Failed to create backup." });
+    } catch (err) {
+      setMessage({ type: "error", text: apiError(err, "Failed to create backup.") });
     } finally {
       setDownloading(false);
     }
@@ -2099,7 +2553,11 @@ function BackupRestoreSection() {
   const handleRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!confirm("This will replace ALL data (works, settings, images) with the backup. Continue?")) {
+    if (!confirm(
+      "Restore replaces ALL data on this server, including every account, with the " +
+      "backup's contents. Anything not in the backup is lost.\n\n" +
+      "To bring works from another install into this one, use Import instead.\n\nContinue?"
+    )) {
       if (fileRef.current) fileRef.current.value = "";
       return;
     }
@@ -2107,33 +2565,97 @@ function BackupRestoreSection() {
     setMessage(null);
     try {
       const result = await restoreBackup(file);
-      setMessage({ type: "success", text: result.message });
-    } catch {
-      setMessage({ type: "error", text: "Failed to restore backup. Ensure the file is a valid Typecast backup." });
+      const dropped = result.secrets_dropped
+        ? ` ${result.secrets_dropped} stored API key(s) were encrypted by a different ` +
+          "server and were not restored; re-enter them below."
+        : "";
+      setMessage({ type: "success", text: `${result.message ?? "Restored."}${dropped}` });
+    } catch (err) {
+      // The server explains refusals (wrong format, newer schema, a single-user
+      // backup on a multi-user server), so show its reason rather than a guess.
+      setMessage({ type: "error", text: apiError(err, "Failed to restore backup.") });
     } finally {
       setRestoring(false);
       if (fileRef.current) fileRef.current.value = "";
     }
   };
 
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (importRef.current) importRef.current.value = "";
+    if (!file) return;
+    setImporting(true);
+    setMessage(null);
+    try {
+      // Check first, so the confirmation can say exactly what will arrive.
+      const preview = await importBackup(file, true);
+      const conflicts = preview.file_conflicts.length
+        ? `\n\n${preview.file_conflicts.length} file(s) already exist here with different ` +
+          "contents and will be left as they are."
+        : "";
+      if (!confirm(
+        `Import ${describeRows(preview.rows)} into your account?` +
+        "\n\nYour existing works are not changed. Accounts, stored API keys, and the " +
+        "Google Drive connection are not imported; set those up on this server." +
+        conflicts
+      )) {
+        return;
+      }
+      const result = await importBackup(file);
+      // New works, profiles, and fonts: every cached list is now stale.
+      await queryClient.invalidateQueries();
+      setMessage({
+        type: "success",
+        text:
+          `Imported ${describeRows(result.rows)} and ${result.files_written} file(s). ` +
+          "Re-enter any API keys this server needs below.",
+      });
+    } catch (err) {
+      setMessage({ type: "error", text: apiError(err, "Import failed.") });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const busy = downloading || restoring || importing;
+
   return (
     <section className="mb-10">
       <h2 className="text-lg font-semibold mb-4">Backup & Restore</h2>
       <div className="bg-tc-overlay/50 border border-tc-subtle rounded-lg p-6 space-y-4">
         <p className="text-sm text-tc-tertiary">
-          Export your entire Typecast instance (all works, settings, images, and AI conversations) as a ZIP file.
-          Restore from a backup to migrate between machines or recover data.
+          Download everything on this server (works, settings, images, and AI conversations) as
+          a ZIP file. Backups work with either database, so one taken from a SQLite install can
+          be loaded into a PostgreSQL one and the other way round.
         </p>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <button
             onClick={handleBackup}
-            disabled={downloading}
+            disabled={busy}
             className="flex items-center gap-2 px-4 py-2 bg-tc-accent hover:bg-tc-accent-hover disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
           >
             <Download size={14} />
             {downloading ? "Creating backup..." : "Download Backup"}
           </button>
-          <label className="flex items-center gap-2 px-4 py-2 bg-tc-hover hover:bg-tc-active rounded-lg text-sm font-medium transition-colors cursor-pointer">
+          <label
+            title="Add a backup's works to your account, keeping everything already here"
+            className={`flex items-center gap-2 px-4 py-2 bg-tc-hover hover:bg-tc-active rounded-lg text-sm font-medium transition-colors ${busy ? "opacity-50 pointer-events-none" : "cursor-pointer"}`}
+          >
+            <Upload size={14} />
+            {importing ? "Importing..." : "Import into my account"}
+            <input
+              ref={importRef}
+              type="file"
+              accept=".zip"
+              onChange={handleImport}
+              className="hidden"
+              disabled={busy}
+            />
+          </label>
+          <label
+            title="Replace everything on this server with a backup"
+            className={`flex items-center gap-2 px-4 py-2 bg-tc-hover hover:bg-tc-active rounded-lg text-sm font-medium transition-colors ${busy ? "opacity-50 pointer-events-none" : "cursor-pointer"}`}
+          >
             <RotateCcw size={14} />
             {restoring ? "Restoring..." : "Restore from Backup"}
             <input
@@ -2142,19 +2664,31 @@ function BackupRestoreSection() {
               accept=".zip"
               onChange={handleRestore}
               className="hidden"
-              disabled={restoring}
+              disabled={busy}
             />
           </label>
         </div>
         {message && (
-          <p className={`text-sm ${message.type === "success" ? "text-tc-success" : "text-tc-error"}`}>
+          <p className={`text-sm whitespace-pre-line ${message.type === "success" ? "text-tc-success" : "text-tc-error"}`}>
             {message.text}
           </p>
         )}
-        <p className="text-xs text-tc-muted">
-          Backups include the database and all uploaded files (covers, images, fonts).
-          API keys are included in encrypted form.
-        </p>
+        <div className="text-xs text-tc-muted space-y-1">
+          <p>
+            <span className="text-tc-secondary">Import</span> adds a backup&apos;s works to your
+            account and leaves everything else alone. Use it to move works from one install to
+            another.
+          </p>
+          <p>
+            <span className="text-tc-secondary">Restore</span> replaces everything on this
+            server, accounts included, with the backup. Use it to recover this install from its
+            own backup.
+          </p>
+          <p>
+            API keys travel only in encrypted form, which another server cannot read, so
+            re-enter them after moving to a new install.
+          </p>
+        </div>
 
         <DriveBackupPanel />
       </div>
