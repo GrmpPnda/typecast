@@ -22,14 +22,16 @@ grant at personal-use traffic.
 Do these in order. The deploy workflow skips the Azure rollout until step 3's
 variables exist, so pushes before then only publish images.
 
-### 1. Publish the first image and make it public
+### 1. Publish the first image
 
 Push to `main` (or run the **Deploy** workflow). It builds
-`ghcr.io/<owner>/typecast:latest`. New packages are private, and Azure cannot
-pull a private image without credentials, so open your GitHub profile →
-**Packages** → **typecast** → **Package settings** → **Change visibility** →
-**Public**. The image holds only this repository's GPL code; secrets are
-injected by Azure at runtime and never baked in.
+`ghcr.io/<owner>/typecast:latest`. Azure pulls it anonymously, so it must be
+public. A package published from a public repository inherits public visibility;
+check with `docker pull ghcr.io/<owner>/typecast:latest` from a machine that is
+not signed in to GitHub. If that fails, open your GitHub profile → **Packages** →
+**typecast** → **Package settings** → **Change visibility** → **Public**. The image
+holds only this repository's GPL code; secrets are injected by Azure at runtime
+and never baked in.
 
 To keep it private instead, create a personal access token with `read:packages`
 and set it as the `REGISTRY_PASSWORD` secret, with your GitHub username as the
