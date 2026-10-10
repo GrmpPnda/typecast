@@ -21,6 +21,9 @@ from app.models.user import User
 logger = logging.getLogger(__name__)
 
 TOKEN_EXPIRY_SECONDS = int(os.environ.get("TYPECAST_TOKEN_EXPIRY", "86400"))
+# Carries a session token for reading /uploads, where an <img> cannot send a
+# header. Scoped to that path and honoured only for reads there (see deps.py).
+UPLOADS_COOKIE = "typecast_uploads"
 AUTH_MODE = os.environ.get("TYPECAST_AUTH_MODE", "local")
 NO_AUTOLOGIN = os.environ.get("TYPECAST_NO_AUTOLOGIN", "0") == "1"
 

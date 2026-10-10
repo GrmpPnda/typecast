@@ -56,6 +56,7 @@ PUBLIC = {
     ("POST", "/api/auth/register"),  # closed unless TYPECAST_OPEN_REGISTRATION=1
     ("POST", "/api/auth/setup"),  # refuses once any account exists
     ("GET", "/api/gdrive/callback"),  # Google's redirect; guarded by single-use state
+    ("DELETE", "/api/auth/session"),  # sign-out: only clears the caller's own cookie
 }
 
 # Install-wide settings and shared resources: readable by any account, but only an

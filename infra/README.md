@@ -205,6 +205,6 @@ curl https://<app>/api/health        # {"status":"ok","version":"<commit>"}
   remove the public endpoint.
 - One replica at most. Migrations run at startup and would race between
   replicas, and Google Drive's sign-in flow keeps its state in memory.
-- Uploaded images and fonts are reachable by anyone with their exact URL, which
-  contains random IDs. Under single sign-on that stops too: nothing reaches the
-  container without signing in, apart from `/api/health`.
+- Uploaded images are served only to the account that owns them, and fonts to any
+  signed-in account. Browsers load them with an HttpOnly cookie scoped to
+  `/uploads`, which the API does not accept, so it cannot be used to act as you.

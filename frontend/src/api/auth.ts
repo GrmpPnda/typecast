@@ -81,3 +81,17 @@ export async function updateMe(updates: {
   const { data } = await client.put<UserProfile>("/auth/me", updates);
   return data;
 }
+
+/**
+ * Ask the server for the cookie that lets this browser load the account's
+ * uploads. <img> and @font-face requests cannot send the bearer token, and the
+ * server no longer serves uploads to anyone who is not signed in.
+ */
+export async function openUploadsSession(): Promise<void> {
+  await client.post("/auth/session");
+}
+
+/** Forget the uploads cookie. Works without a session, so sign-out always can. */
+export async function closeUploadsSession(): Promise<void> {
+  await client.delete("/auth/session");
+}

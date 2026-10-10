@@ -110,10 +110,15 @@ def test_nginx_proxies_every_path_the_backend_serves():
     nginx = (REPO_ROOT / "frontend" / "nginx.conf").read_text()
     proxied = set(re.findall(r"location\s+(/[a-z]+)/\s*\{[^}]*proxy_pass", nginx, re.S))
 
-    mounted = mounted_paths(create_app())
-    api_prefixes = {"/api"}
+    app = create_app()
+    # Mounts, plus every top-level prefix with routes (/api, and /uploads since it
+    # stopped being a public mount).
+    served = mounted_paths(app) | {
+        "/" + path.split("/")[1] for _, path, _ in api_routes(app) if path.count("/") > 1
+    }
+    assert "/uploads" in served
 
-    missing = sorted((mounted | api_prefixes) - proxied)
+    missing = sorted(served - proxied)
     assert missing == [], (
         f"nginx.conf does not proxy {missing}; requests to those paths will be "
         "answered by the SPA fallback instead of the backend."

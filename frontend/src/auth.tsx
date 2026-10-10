@@ -5,8 +5,23 @@ import {
   getMe,
   login as apiLogin,
   completeSetup as apiCompleteSetup,
+  openUploadsSession,
+  closeUploadsSession,
   UserProfile,
 } from "./api/auth";
+
+/**
+ * Before the user is set, so the first images the app renders already have the
+ * cookie. A failure is logged rather than thrown: the app works without it,
+ * only images and custom fonts do not load.
+ */
+async function withUploadsSession(): Promise<void> {
+  try {
+    await openUploadsSession();
+  } catch (err) {
+    console.warn("Could not open the uploads session; images may not load.", err);
+  }
+}
 
 interface AuthContextValue {
   user: UserProfile | null;
@@ -65,6 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshUser = useCallback(async () => {
     try {
       const me = await getMe();
+      await withUploadsSession();
       setUser(me);
       localStorage.setItem("user", JSON.stringify(me));
     } catch {
@@ -120,6 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const { token, user: u } = await apiLogin("local@typecast.local", "");
           localStorage.setItem("token", token);
           localStorage.setItem("user", JSON.stringify(u));
+          await withUploadsSession();
           setUser(u);
         } else if (localStorage.getItem("token")) {
           await refreshUser();
@@ -141,6 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Drop anything cached for whoever was here before, so the incoming user
       // never sees another account's works, chapters, or codex entries.
       queryClient.clear();
+      await withUploadsSession();
       setUser(u);
     },
     [queryClient]
@@ -156,6 +174,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { token, user: u } = await apiCompleteSetup(payload);
       localStorage.setItem("token", token);
       localStorage.setItem("user", JSON.stringify(u));
+      await withUploadsSession();
       setUser(u);
       // Clearing this is what releases the redirect guard on every route.
       setSetupRequired(false);
@@ -166,6 +185,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
+    // Not awaited: sign-out must not wait on the network. The cookie also
+    // expires with the token.
+    closeUploadsSession().catch(() => {});
     if (logoutUrl) {
       // Signing out of the proxy ends the single sign-on session; clearing our
       // own state alone would just sign you straight back in.

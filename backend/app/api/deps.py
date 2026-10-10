@@ -9,7 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import get_db
 from app.models.user import User
-from app.services.auth import AUTH_MODE, NO_AUTOLOGIN, decode_access_token, get_or_create_local_user
+from app.services.auth import (
+    AUTH_MODE,
+    NO_AUTOLOGIN,
+    UPLOADS_COOKIE,
+    decode_access_token,
+    get_or_create_local_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +79,21 @@ async def _proxy_user(request: Request, db: AsyncSession) -> User:
 
 
 def _extract_token(request: Request) -> str | None:
+    """The bearer token, or for reading an upload, the uploads cookie.
+
+    The API takes bearer tokens only. A browser attaches cookies to requests
+    other sites make, so a cookie that authenticated the API would let any page
+    act as the signed-in user. The uploads cookie is the one exception, because
+    an <img> cannot send a header: it is scoped to /uploads and honoured only
+    for reads there, which change nothing. (An unused fallback that accepted a
+    "token" cookie anywhere was removed for the same reason.)
+    """
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         return auth_header[7:]
-    return request.cookies.get("token")
+    if request.method in ("GET", "HEAD") and request.url.path.startswith("/uploads/"):
+        return request.cookies.get(UPLOADS_COOKIE)
+    return None
 
 
 async def get_optional_user(

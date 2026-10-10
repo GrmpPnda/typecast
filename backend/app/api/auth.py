@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,8 @@ from app.services.auth import (
     MIN_PASSWORD_LENGTH,
     NO_AUTOLOGIN,
     OPEN_REGISTRATION,
+    TOKEN_EXPIRY_SECONDS,
+    UPLOADS_COOKIE,
     count_users,
     create_access_token,
     create_user,
@@ -253,6 +255,35 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     logger.info("New user registered: %s (%s)", user.email, user.username)
     token = create_access_token(user.id)
     return {"token": token, "user": _user_response(user)}
+
+
+@router.post("/session", status_code=204)
+async def open_uploads_session(
+    request: Request, response: Response, user: User = Depends(get_current_user)
+):
+    """Set the cookie that lets the browser load this account's uploads.
+
+    Called by the frontend once it has a session, because <img> and @font-face
+    requests cannot carry the bearer token. The cookie is HttpOnly, so script
+    cannot read it, and scoped to /uploads, where it is honoured only for reads.
+    """
+    response.set_cookie(
+        UPLOADS_COOKIE,
+        create_access_token(user.id),
+        max_age=TOKEN_EXPIRY_SECONDS,
+        path="/uploads",
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="lax",
+    )
+    logger.debug("Opened uploads session for %s", user.email)
+
+
+@router.delete("/session", status_code=204)
+async def close_uploads_session(response: Response):
+    """Sign-out: forget the uploads cookie. Needs no session, so it always works."""
+    response.delete_cookie(UPLOADS_COOKIE, path="/uploads")
+    logger.debug("Closed uploads session")
 
 
 @router.get("/me", response_model=UserResponse)

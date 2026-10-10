@@ -23,6 +23,7 @@ from app.api import (
     conversations,
     cover,
     export,
+    files,
     fonts,
     gallery,
     gdrive,
@@ -181,7 +182,9 @@ def create_app() -> FastAPI:
         app.include_router(router, prefix=prefix, tags=[tag], dependencies=signed_in)
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+    # Not a StaticFiles mount: every file is served only to the account it
+    # belongs to (see app/api/files.py).
+    app.include_router(files.router, prefix="/uploads", tags=["uploads"])
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):
