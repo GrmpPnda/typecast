@@ -29,6 +29,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
@@ -36,7 +37,10 @@ from sqlalchemy import (
     Date,
     DateTime,
     Enum,
+    Float,
+    Integer,
     LargeBinary,
+    Numeric,
     String,
     Table,
     Uuid,
@@ -86,6 +90,9 @@ _NON_PORTABLE_CONFIG_PREFIXES = ("gdrive_",)
 # Postgres rejects a long IN list less readily than SQLite, but both have
 # limits; chunking keeps the existence checks well inside either.
 _IN_CHUNK = 500
+
+_TRUE_TEXT = frozenset({"1", "true", "t", "yes", "y", "on"})
+_FALSE_TEXT = frozenset({"0", "false", "f", "no", "n", "off"})
 
 
 class PortableError(Exception):
@@ -159,10 +166,33 @@ def decode_value(column, value: Any) -> Any:
         if isinstance(col_type, Date):
             return date.fromisoformat(value)
         if isinstance(col_type, Boolean):
+            if isinstance(value, str):
+                # bool("0") is True; SQLite can hand back booleans as text.
+                lowered = value.strip().lower()
+                if lowered in _FALSE_TEXT:
+                    return False
+                if lowered in _TRUE_TEXT:
+                    return True
+                raise ValueError(value)
             return bool(value)
+        # SQLite keeps whatever was written, so a numeric column can hold "8.5" as
+        # text (the dev database's profile dimensions do). Postgres rejects a
+        # string for a number, so convert by the column's type.
+        # Float is not a Numeric subclass on SQLAlchemy 2.1, so name all three.
+        if isinstance(col_type, (Numeric, Float, Integer)) and isinstance(value, str):
+            if not value.strip() and column.nullable:
+                return None
+            number = float(value)
+            if isinstance(col_type, Integer):
+                if not number.is_integer():
+                    raise ValueError(value)
+                return int(number)
+            if isinstance(col_type, Float) or not col_type.asdecimal:
+                return number
+            return Decimal(value.strip())
         if isinstance(col_type, LargeBinary) and isinstance(value, dict):
             return base64.b64decode(value["$bytes"])
-    except (KeyError, ValueError, TypeError) as exc:
+    except (KeyError, ValueError, TypeError, ArithmeticError) as exc:
         raise PortableError(
             f"{column.table.name}.{column.name} holds a value this version cannot read: "
             f"{value!r}"

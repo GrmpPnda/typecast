@@ -592,3 +592,65 @@ async def test_a_failure_while_installing_files_rolls_back_files_and_rows(
     data_dir = tmp_path / "source"
     assert not (data_dir / ".uploads-incoming").exists()
     assert not (data_dir / ".uploads-retired").exists()
+
+
+# --- values SQLite stored as text ----------------------------------------------
+
+
+def _column(table: str, name: str):
+    return Base.metadata.tables[table].c[name]
+
+
+@pytest.mark.parametrize(
+    ("table", "column", "stored", "loaded"),
+    [
+        # The real dev database: profile dimensions held as text, which Postgres
+        # rejected with "must be real number, not str".
+        ("profiles", "page_width", "8.5", 8.5),
+        ("profiles", "margin_inner", " 0.875 ", 0.875),
+        ("profiles", "page_width", "", None),
+        ("profiles", "page_width", 6.0, 6.0),
+        ("chapters", "number", "3", 3),
+        ("chapters", "number", "3.0", 3),
+        # bool("0") would be True.
+        ("profiles", "is_builtin", "0", False),
+        ("profiles", "is_builtin", "false", False),
+        ("profiles", "is_builtin", "1", True),
+        ("profiles", "is_builtin", 0, False),
+    ],
+)
+def test_text_in_typed_columns_is_converted(table, column, stored, loaded):
+    from app.services.portable import decode_value
+
+    value = decode_value(_column(table, column), stored)
+    assert value == loaded and type(value) is type(loaded)
+
+
+@pytest.mark.parametrize(
+    ("table", "column", "stored"),
+    [
+        ("profiles", "page_width", "wide"),
+        ("chapters", "number", "3.5"),
+        ("profiles", "is_builtin", "maybe"),
+    ],
+)
+def test_unreadable_numbers_are_reported_not_loaded(table, column, stored):
+    from app.services.portable import PortableError, decode_value
+
+    with pytest.raises(PortableError, match=f"{table}.{column}"):
+        decode_value(_column(table, column), stored)
+
+
+def test_decoded_archive_rows_carry_numbers_not_text():
+    """Rows as the dev database exported them. A column created from today's models
+    has numeric affinity and would convert "8.5" on write, so the text can only be
+    reproduced in the archive, not in a fresh SQLite table."""
+    from app.services.portable import LoadSummary, decode_rows
+
+    rows = {"profiles": [{
+        "id": "0123456789abcdef0123456789abcdef", "name": "Trade", "format": "PDF",
+        "is_builtin": 0, "page_width": "8.5", "page_height": "11.0", "line_height": 1.5,
+    }]}
+    profile = decode_rows(rows, LoadSummary(mode="import"))["profiles"][0]
+    assert (profile["page_width"], profile["page_height"]) == (8.5, 11.0)
+    assert all(not isinstance(v, str) for k, v in profile.items() if k.startswith("page_"))
