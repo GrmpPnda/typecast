@@ -24,6 +24,9 @@ simply not offered.
 * ``TYPECAST_GOOGLE_CLIENT_ID``, ``_CLIENT_SECRET``
 * ``TYPECAST_PUBLIC_URL``: the address the app is reached at, to build redirect
   URIs from. Unset, they come from the request.
+* ``TYPECAST_MICROSOFT_DISCOVERY_URL`` / ``TYPECAST_GOOGLE_DISCOVERY_URL``: where
+  to fetch the provider's OpenID configuration, for testing against a stand-in
+  provider. Unset, the real provider's.
 
 Pending sign-ins live in memory, which matches the deployment of one replica. A
 restart in the middle of a sign-in means signing in again.
@@ -94,7 +97,7 @@ def load_providers(env: Mapping[str, str] | None = None) -> dict[str, Provider]:
             name="Microsoft",
             client_id=ms_id,
             client_secret=source.get("TYPECAST_MICROSOFT_CLIENT_SECRET", ""),
-            discovery_url=(
+            discovery_url=source.get("TYPECAST_MICROSOFT_DISCOVERY_URL", "").strip() or (
                 f"https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration"
             ),
             tenant=tenant,
@@ -106,7 +109,8 @@ def load_providers(env: Mapping[str, str] | None = None) -> dict[str, Provider]:
             name="Google",
             client_id=google_id,
             client_secret=source.get("TYPECAST_GOOGLE_CLIENT_SECRET", ""),
-            discovery_url="https://accounts.google.com/.well-known/openid-configuration",
+            discovery_url=source.get("TYPECAST_GOOGLE_DISCOVERY_URL", "").strip()
+            or "https://accounts.google.com/.well-known/openid-configuration",
         )
     for provider in found.values():
         if not provider.client_secret:

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { Shield } from "lucide-react";
 import { useAuth } from "@/auth";
+import ProviderButtons from "@/components/ProviderButtons";
 
 /**
  * First-run setup: creates the administrator on a deployment with no accounts.
@@ -11,7 +12,7 @@ import { useAuth } from "@/auth";
  * redirects away, so it cannot be used to add a second admin.
  */
 export default function Setup() {
-  const { setupRequired, loading, completeSetup } = useAuth();
+  const { setupRequired, loading, completeSetup, providers } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({
     email: "",
@@ -80,6 +81,21 @@ export default function Setup() {
           This is a new installation with no accounts yet. The account you create here can
           manage every other account from Settings.
         </p>
+
+        {providers.length > 0 && (
+          <div className="mb-6 space-y-4">
+            <ProviderButtons providers={providers} />
+            <p className="text-xs text-tc-muted text-center">
+              The first person to sign in becomes the administrator, and that account will
+              always sign in that way.
+            </p>
+            <div className="flex items-center gap-3 text-xs text-tc-muted">
+              <div className="flex-1 border-t border-tc-subtle" />
+              or create a password account
+              <div className="flex-1 border-t border-tc-subtle" />
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

@@ -8,6 +8,15 @@ export interface UserProfile {
   avatar_url: string | null;
   bio: string | null;
   is_admin: boolean;
+  /** "password", "microsoft", "google", "external", or null (not signed in yet). */
+  auth_provider?: string | null;
+}
+
+/** A way to sign in with another account, offered on the sign-in page. */
+export interface SignInProvider {
+  id: string;
+  name: string;
+  start_url: string;
 }
 
 interface TokenResponse {
@@ -23,6 +32,8 @@ export interface AuthState {
   /** Proxy (single sign-on) mode: where the proxy signs people in and out. */
   login_url?: string | null;
   logout_url?: string | null;
+  /** Multi-user mode: Microsoft, Google, or both, when the server has them. */
+  providers?: SignInProvider[];
 }
 
 export async function getAuthState(): Promise<AuthState> {
@@ -94,4 +105,10 @@ export async function openUploadsSession(): Promise<void> {
 /** Forget the uploads cookie. Works without a session, so sign-out always can. */
 export async function closeUploadsSession(): Promise<void> {
   await client.delete("/auth/session");
+}
+
+/** Trade the single-use code the provider sign-in returned with for a session. */
+export async function exchangeSsoCode(code: string): Promise<TokenResponse> {
+  const { data } = await client.post<TokenResponse>("/auth/oidc/exchange", { code });
+  return data;
 }

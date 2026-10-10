@@ -1814,9 +1814,13 @@ function apiError(err: unknown, fallback: string): string {
   return typeof detail === "string" ? detail : fallback;
 }
 
+const PROVIDER_NAMES: Record<string, string> = { microsoft: "Microsoft", google: "Google" };
+
 function AccountSection() {
   const { user, authMode } = useAuth();
-  const sso = authMode === "proxy";
+  const provider = PROVIDER_NAMES[user?.auth_provider ?? ""];
+  // No password to change: the proxy or a provider signs this account in.
+  const sso = authMode === "proxy" || !!provider;
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -1851,13 +1855,15 @@ function AccountSection() {
       </div>
       <div className="bg-tc-overlay/50 border border-tc-subtle rounded-lg p-6 space-y-4">
         <p className="text-xs text-tc-muted">
-          Signed in{sso && " with single sign-on"} as{" "}
+          Signed in{provider ? ` with ${provider}` : sso ? " with single sign-on" : ""} as{" "}
           <span className="text-tc-secondary">{user?.email}</span>
           {user?.is_admin && " (administrator)"}
         </p>
         {sso && (
           <p className="text-xs text-tc-muted">
-            Your password is managed by your organisation&apos;s sign-in, not by Typecast.
+            {provider
+              ? `This account always signs in with ${provider}, so it has no Typecast password.`
+              : "Your password is managed by your organisation\u2019s sign-in, not by Typecast."}
           </p>
         )}
 
@@ -1926,8 +1932,19 @@ function AccountSection() {
  * Admin-only account management. Self-service signup is disabled on the server,
  * so this is the only way accounts are created after the first admin.
  */
+/** How an account signs in, for the Users table. */
+function signInLabel(u: ManagedUser): string {
+  if (u.auth_provider === "password") return "Password";
+  if (u.auth_provider === "external") return u.sso_linked ? "Single sign-on" : "Single sign-on, not signed in yet";
+  if (u.auth_provider) {
+    const name = PROVIDER_NAMES[u.auth_provider] ?? u.auth_provider;
+    return u.sso_linked ? name : `${name}, not signed in yet`;
+  }
+  return "Microsoft or Google, not signed in yet";
+}
+
 function UsersSection() {
-  const { user, authMode } = useAuth();
+  const { user, authMode, providers } = useAuth();
   // Single sign-on: accounts link to a person's identity the first time they
   // sign in, matched by email, so there is no password to set or reset.
   const sso = authMode === "proxy";
@@ -1940,7 +1957,9 @@ function UsersSection() {
     display_name: "",
     password: "",
     is_admin: false,
+    sign_in: "password",
   });
+  const needsPassword = !sso && form.sign_in === "password";
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ["users"],
@@ -1952,12 +1971,16 @@ function UsersSection() {
   const fail = (fallback: string) => (err: unknown) => setError(apiError(err, fallback));
 
   const createMutation = useMutation({
-    mutationFn: () => createUser(sso ? { ...form, password: undefined } : form),
+    mutationFn: () =>
+      createUser({ ...form, password: needsPassword ? form.password : undefined }),
     onSuccess: () => {
       invalidate();
       setShowCreate(false);
       setError(null);
-      setForm({ email: "", username: "", display_name: "", password: "", is_admin: false });
+      setForm({
+        email: "", username: "", display_name: "", password: "", is_admin: false,
+        sign_in: "password",
+      });
     },
     onError: fail("Could not create the account."),
   });
@@ -1984,7 +2007,11 @@ function UsersSection() {
   const resetMutation = useMutation({
     mutationFn: ({ id, password }: { id: string; password: string }) =>
       resetUserPassword(id, password),
-    onSuccess: () => setError(null),
+    onSuccess: () => {
+      // A reset can turn a Microsoft or Google account into a password one.
+      invalidate();
+      setError(null);
+    },
     onError: fail("Could not reset the password."),
   });
 
@@ -2016,6 +2043,16 @@ function UsersSection() {
   };
 
   const handleReset = (target: ManagedUser) => {
+    const switching = target.auth_provider !== "password";
+    if (
+      switching &&
+      !window.confirm(
+        `${target.email} signs in with ${signInLabel(target).split(",")[0]}. Setting a password ` +
+          "makes it a password account: that sign-in will stop working for it. Continue?"
+      )
+    ) {
+      return;
+    }
     const password = window.prompt(`New password for ${target.email} (at least 8 characters):`);
     if (!password) return;
     if (password.length < 8) {
@@ -2083,7 +2120,21 @@ function UsersSection() {
               onChange={(e) => setForm({ ...form, display_name: e.target.value })}
               className="px-3 py-2 bg-tc-hover border border-tc-strong rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-tc-accent"
             />
-            {!sso && (
+            {!sso && providers.length > 0 && (
+              <select
+                value={form.sign_in}
+                onChange={(e) => setForm({ ...form, sign_in: e.target.value })}
+                className="px-3 py-2 bg-tc-hover border border-tc-strong rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-tc-accent"
+                aria-label="Sign-in method"
+              >
+                <option value="password">Signs in with a password</option>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>Signs in with {p.name}</option>
+                ))}
+                <option value="any">Whichever provider they use first</option>
+              </select>
+            )}
+            {needsPassword && (
               <input
                 placeholder="Password (8+ characters)"
                 type="password"
@@ -2149,7 +2200,7 @@ function UsersSection() {
                       )}
                     </div>
                     <div className="text-xs text-tc-muted">
-                      {u.email} &middot; @{u.username}
+                      {u.email} &middot; @{u.username} &middot; {signInLabel(u)}
                     </div>
                   </td>
                   <td className="py-3">
@@ -2160,9 +2211,6 @@ function UsersSection() {
                     >
                       {u.is_active ? "Active" : "Disabled"}
                     </span>
-                    {sso && !u.sso_linked && (
-                      <div className="text-xs text-tc-muted">Not signed in yet</div>
-                    )}
                   </td>
                   <td className="py-3">
                     <div className="flex items-center justify-end gap-2">
@@ -2185,7 +2233,11 @@ function UsersSection() {
                       {!sso && (
                         <button
                           onClick={() => handleReset(u)}
-                          title="Set a new password"
+                          title={
+                            u.auth_provider === "password"
+                              ? "Set a new password"
+                              : "Switch to password sign-in (for a lost Microsoft or Google account)"
+                          }
                           className="p-1 text-tc-muted hover:text-tc-secondary rounded"
                         >
                           <KeyRound size={14} />

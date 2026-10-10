@@ -9,6 +9,8 @@ export interface ManagedUser {
   is_admin: boolean;
   /** Single sign-on: whether this person has signed in yet. */
   sso_linked: boolean;
+  /** "password", "microsoft", "google", "external", or null (first sign-in decides). */
+  auth_provider?: string | null;
 }
 
 export async function listUsers(): Promise<ManagedUser[]> {
@@ -23,6 +25,8 @@ export async function createUser(payload: {
   /** Omitted under single sign-on, where the account links on first sign-in. */
   password?: string;
   is_admin: boolean;
+  /** "password", "microsoft", "google", or "any" (whichever they use first). */
+  sign_in?: string;
 }): Promise<ManagedUser> {
   const { data } = await client.post<ManagedUser>("/users/", payload);
   return data;

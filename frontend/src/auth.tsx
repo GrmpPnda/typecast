@@ -5,8 +5,10 @@ import {
   getMe,
   login as apiLogin,
   completeSetup as apiCompleteSetup,
+  exchangeSsoCode,
   openUploadsSession,
   closeUploadsSession,
+  SignInProvider,
   UserProfile,
 } from "./api/auth";
 
@@ -34,8 +36,12 @@ interface AuthContextValue {
   /** Proxy mode: the proxy's sign-in and sign-out URLs. */
   loginUrl: string | null;
   logoutUrl: string | null;
+  /** Multi-user mode: providers this server offers besides a password. */
+  providers: SignInProvider[];
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  /** Finish a Microsoft or Google sign-in with the code it came back with. */
+  completeSso: (code: string) => Promise<void>;
   completeSetup: (payload: {
     email: string;
     username: string;
@@ -53,8 +59,10 @@ const AuthContext = createContext<AuthContextValue>({
   accessDenied: null,
   loginUrl: null,
   logoutUrl: null,
+  providers: [],
   loading: true,
   login: async () => {},
+  completeSso: async () => {},
   completeSetup: async () => {},
   logout: () => {},
   refreshUser: async () => {},
@@ -75,6 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [accessDenied, setAccessDenied] = useState<string | null>(null);
   const [loginUrl, setLoginUrl] = useState<string | null>(null);
   const [logoutUrl, setLogoutUrl] = useState<string | null>(null);
+  const [providers, setProviders] = useState<SignInProvider[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refreshUser = useCallback(async () => {
@@ -96,6 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const state = await getAuthState();
         setAuthMode(state.mode);
         setSetupRequired(state.setup_required);
+        setProviders(state.providers ?? []);
 
         const previousMode = localStorage.getItem("auth_mode");
         if (previousMode && previousMode !== state.mode) {
@@ -164,6 +174,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [queryClient]
   );
 
+  const completeSso = useCallback(
+    async (code: string) => {
+      const { token, user: u } = await exchangeSsoCode(code);
+      localStorage.setItem("token", token);
+      localStorage.setItem("user", JSON.stringify(u));
+      queryClient.clear();
+      await withUploadsSession();
+      // A provider sign-in can create the first account, which ends setup.
+      setSetupRequired(false);
+      setUser(u);
+    },
+    [queryClient]
+  );
+
   const completeSetup = useCallback(
     async (payload: {
       email: string;
@@ -210,8 +234,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         accessDenied,
         loginUrl,
         logoutUrl,
+        providers,
         loading,
         login,
+        completeSso,
         completeSetup,
         logout,
         refreshUser,
