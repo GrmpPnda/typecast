@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.db.engine import get_db
 from app.models.user import User
+from app.services import throttle
 from app.services.auth import (
     AUTH_MODE,
     MIN_PASSWORD_LENGTH,
@@ -88,6 +89,21 @@ class AuthModeResponse(BaseModel):
 
 
 _SSO_ONLY = "Sign-in is handled by single sign-on on this server."
+
+
+def _client(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _check_throttle(account: str, client: str) -> None:
+    try:
+        throttle.password_checks.check(account, client)
+    except throttle.ThrottledError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=throttle.retry_message(exc.retry_after),
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
 
 
 def _refuse_in_proxy_mode() -> None:
@@ -174,7 +190,7 @@ async def first_run_setup(data: SetupRequest, db: AsyncSession = Depends(get_db)
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     _refuse_in_proxy_mode()
     if AUTH_MODE == "local" and not NO_AUTOLOGIN:
         logger.debug("Local auto-login for %s", data.email)
@@ -182,11 +198,17 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
         token = create_access_token(user.id)
         return {"token": token, "user": _user_response(user)}
 
-    logger.debug("Login attempt for %s", data.email)
+    client = _client(request)
+    logger.debug("Login attempt for %s from %s", data.email, client)
+    # Before any lookup or hashing, so a refused attempt learns nothing and costs
+    # the server nothing.
+    _check_throttle(data.email, client)
     user = await get_user_by_email(db, data.email)
     if not user or not verify_password(data.password, user.hashed_password):
-        logger.warning("Failed login attempt for %s", data.email)
+        throttle.password_checks.record_failure(data.email, client)
+        logger.warning("Failed login attempt for %s from %s", data.email, client)
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    throttle.password_checks.record_success(data.email, client)
     if not user.is_active:
         logger.warning("Login attempt for disabled account: %s", data.email)
         raise HTTPException(status_code=403, detail="Account is disabled")
@@ -258,6 +280,7 @@ async def update_me(
 @router.put("/me/password", status_code=204)
 async def change_my_password(
     data: PasswordChangeRequest,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -268,9 +291,15 @@ async def change_my_password(
     the account permanently.
     """
     _refuse_in_proxy_mode()
+    # Shares sign-in's counts: a stolen token must not become a way to guess the
+    # password without limit.
+    client = _client(request)
+    _check_throttle(user.email, client)
     if not verify_password(data.current_password, user.hashed_password):
+        throttle.password_checks.record_failure(user.email, client)
         logger.warning("Password change refused for %s: current password wrong", user.email)
         raise HTTPException(status_code=403, detail="Current password is incorrect")
+    throttle.password_checks.record_success(user.email, client)
     try:
         await set_password(db, user, data.new_password)
     except ValueError as exc:

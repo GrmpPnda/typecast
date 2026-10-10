@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncGenerator
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
@@ -18,6 +19,15 @@ from app.db.engine import get_db
 from app.main import create_app
 from app.models.user import User
 from app.services.auth import hash_password
+from app.services.throttle import password_checks
+
+
+@pytest.fixture(autouse=True)
+def _reset_password_throttle():
+    """The throttle is process-wide; one test's failures must not lock out the next."""
+    password_checks.reset()
+    yield
+    password_checks.reset()
 
 
 @pytest_asyncio.fixture
