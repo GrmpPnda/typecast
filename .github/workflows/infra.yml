@@ -78,36 +78,61 @@ jobs:
           POSTGRES_LOCATION: ${{ vars.POSTGRES_LOCATION }}
           # Region for everything else; unset means the resource group's.
           AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+          CUSTOM_HOSTNAME: ${{ vars.CUSTOM_HOSTNAME }}
         run: |
           image="ghcr.io/${GITHUB_REPOSITORY,,}:latest"
           params="$RUNNER_TEMP/params.json"
           umask 077
           trap 'rm -f "$params"' EXIT
-          jq -n \
-            --arg image "$image" --arg appName "$APP_NAME" --arg adminEmail "$ADMIN_EMAIL" \
-            --arg adminPassword "$ADMIN_PASSWORD" --arg secretKey "$SECRET_KEY" \
-            --arg postgresAdminPassword "$POSTGRES_PASSWORD" \
-            --arg ssoClientId "$SSO_CLIENT_ID" --arg ssoClientSecret "$SSO_CLIENT_SECRET" \
-            --arg registryUsername "$REGISTRY_USERNAME" --arg registryPassword "$REGISTRY_PASSWORD" \
-            --arg postgresLocation "$POSTGRES_LOCATION" --arg location "$AZURE_LOCATION" \
-            '{"$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
-              contentVersion: "1.0.0.0",
-              parameters: ($ARGS.named | with_entries(select(.value != "")) | with_entries(.value = {value: .value}))}' > "$params"
-          az deployment group create \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "typecast-${GITHUB_RUN_NUMBER}" \
-            --template-file infra/main.bicep \
-            --parameters "@$params" \
-            --query properties.outputs --output json | tee "$RUNNER_TEMP/outputs.json"
+
+          # A certificate already issued for the custom hostname is bound directly,
+          # so a re-run never unbinds it. None yet: this run requests one.
+          cert_id=""
+          if [ -n "$CUSTOM_HOSTNAME" ]; then
+            cert_id=$(az containerapp env certificate list \
+                        --resource-group "$RESOURCE_GROUP" --name "${APP_NAME}-env" \
+                        --managed-certificates-only \
+                        --query "[?properties.subjectName=='${CUSTOM_HOSTNAME}' && properties.provisioningState=='Succeeded'].id | [0]" \
+                        --output tsv 2>/dev/null || true)
+            echo "Custom hostname ${CUSTOM_HOSTNAME}: certificate ${cert_id:-not issued yet}"
+          fi
+
+          deploy() {  # $1: deployment name, $2: certificate ID
+            jq -n \
+              --arg image "$image" --arg appName "$APP_NAME" --arg adminEmail "$ADMIN_EMAIL" \
+              --arg adminPassword "$ADMIN_PASSWORD" --arg secretKey "$SECRET_KEY" \
+              --arg postgresAdminPassword "$POSTGRES_PASSWORD" \
+              --arg ssoClientId "$SSO_CLIENT_ID" --arg ssoClientSecret "$SSO_CLIENT_SECRET" \
+              --arg registryUsername "$REGISTRY_USERNAME" --arg registryPassword "$REGISTRY_PASSWORD" \
+              --arg postgresLocation "$POSTGRES_LOCATION" --arg location "$AZURE_LOCATION" \
+              --arg customHostname "$CUSTOM_HOSTNAME" --arg customHostnameCertificateId "$2" \
+              '{"$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+                contentVersion: "1.0.0.0",
+                parameters: ($ARGS.named | with_entries(select(.value != "")) | with_entries(.value = {value: .value}))}' > "$params"
+            echo "$1" > "$RUNNER_TEMP/deployment-name"
+            az deployment group create \
+              --resource-group "$RESOURCE_GROUP" --name "$1" \
+              --template-file infra/main.bicep \
+              --parameters "@$params" \
+              --query properties.outputs --output json | tee "$RUNNER_TEMP/outputs.json"
+          }
+
+          deploy "typecast-${GITHUB_RUN_NUMBER}" "$cert_id"
+          requested=$(jq -r '.requestedCertificateId.value // ""' "$RUNNER_TEMP/outputs.json")
+          if [ -n "$requested" ]; then
+            echo "Certificate issued for ${CUSTOM_HOSTNAME}; binding it"
+            deploy "typecast-${GITHUB_RUN_NUMBER}-bind" "$requested"
+          fi
       - name: Show what failed
         if: failure()
         run: |
-          echo "Failed operations in deployment typecast-${GITHUB_RUN_NUMBER}:"
+          name=$(cat "$RUNNER_TEMP/deployment-name" 2>/dev/null || echo "typecast-${GITHUB_RUN_NUMBER}")
+          echo "Failed operations in deployment ${name}:"
           az deployment operation group list \
-            --resource-group "$RESOURCE_GROUP" --name "typecast-${GITHUB_RUN_NUMBER}" \
+            --resource-group "$RESOURCE_GROUP" --name "$name" \
             --query "[?properties.provisioningState=='Failed'].{resource:properties.targetResource.resourceName, type:properties.targetResource.resourceType, error:properties.statusMessage}" \
             --output json || true
       - name: Summary
         run: |
-          jq -r '"### Typecast infrastructure\n\n| | |\n|---|---|\n| App | \(.appUrl.value) |\n| SSO redirect URI | `\(.ssoRedirectUri.value)` |\n| PostgreSQL | `\(.postgresServer.value)` |"' \
+          jq -r '"### Typecast infrastructure\n\n| | |\n|---|---|\n| App | \(.appUrl.value) |\n| Default address | \(.defaultUrl.value) |\n| SSO redirect URI | `\(.ssoRedirectUri.value)` |\n| PostgreSQL | `\(.postgresServer.value)` |"' \
             "$RUNNER_TEMP/outputs.json" >> "$GITHUB_STEP_SUMMARY"

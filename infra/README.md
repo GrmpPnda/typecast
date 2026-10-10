@@ -99,6 +99,43 @@ new site, sign in as the administrator and choose **Import into my account**.
 Then re-enter your AI provider keys and reconnect Google Drive, neither of which
 can move between servers.
 
+## Your own hostname (optional)
+
+Azure issues and renews a free certificate for it. The default
+`*.azurecontainerapps.io` address keeps working alongside.
+
+1. Find the two values the DNS records need:
+
+   ```bash
+   az containerapp show -n typecast -g typecast-rg \
+     --query "{cname: properties.configuration.ingress.fqdn, txt: properties.customDomainVerificationId}" -o table
+   ```
+
+2. At your DNS provider, for `typecast.example.com`:
+
+   | Type | Name | Value |
+   | --- | --- | --- |
+   | CNAME | `typecast` | the `cname` value |
+   | TXT | `asuid.typecast` | the `txt` value |
+
+   On Cloudflare, set the CNAME to **DNS only**: a proxied record hides the
+   CNAME, and the certificate cannot be validated. If the domain has CAA records,
+   one must allow `digicert.com`. Check with `dig +short CNAME typecast.example.com`
+   and `dig +short TXT asuid.typecast.example.com`.
+3. Set the repository variable `CUSTOM_HOSTNAME` to `typecast.example.com` and run
+   **Infrastructure**. The first run deploys twice, because the certificate can
+   only be requested once the hostname is attached; issuing it can take up to
+   twenty minutes. Later runs bind the existing certificate in one pass.
+4. With single sign-on, add the new address as a redirect URI, keeping the
+   default one:
+
+   ```bash
+   APP_ID=$(az ad app list --display-name Typecast --query "[0].appId" -o tsv)
+   az ad app update --id "$APP_ID" --web-redirect-uris \
+     "https://typecast.example.com/.auth/login/aad/callback" \
+     $(az ad app show --id "$APP_ID" --query "web.redirectUris[]" -o tsv)
+   ```
+
 ## Single sign-on with Microsoft Entra ID (optional)
 
 Sign-in moves to Microsoft, and Typecast has no passwords at all. Do this after

@@ -58,12 +58,25 @@ param tenantId string = subscription().tenantId
 @description('Expiry of the SAS that lets the sign-in layer use its token store. Renew by re-running before then.')
 param tokenStoreSasExpiry string = dateTimeAdd(utcNow(), 'P1Y')
 
+@description('Your own hostname for the app, such as typecast.example.com. Needs a CNAME to the app\'s default address and an asuid TXT record first; see infra/README.md. Empty serves only the default address.')
+param customHostname string = ''
+
+@description('ID of the managed certificate already issued for customHostname. The Infrastructure workflow looks it up; empty attaches the hostname and requests one.')
+param customHostnameCertificateId string = ''
+
 @description('Registry credentials, only for a private image. Leave empty for a public ghcr.io package.')
 param registryUsername string = ''
 @secure()
 param registryPassword string = ''
 
 var sso = !empty(ssoClientId)
+// A managed certificate can only be issued for a hostname already attached to
+// the app, and the app can only serve HTTPS on it once the certificate exists.
+// So the first run attaches it unbound and requests the certificate; the
+// workflow then deploys again with the certificate's ID to bind it.
+var customDomain = !empty(customHostname)
+var requestCertificate = customDomain && empty(customHostnameCertificateId)
+var publicHost = customDomain ? customHostname : app.properties.configuration.ingress.fqdn
 var suffix = uniqueString(resourceGroup().id)
 var storageName = take('${appName}${suffix}', 24)
 var postgresName = '${appName}-pg-${suffix}'
@@ -255,6 +268,13 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
         targetPort: 8000
         transport: 'auto'
         allowInsecure: false
+        customDomains: customDomain
+          ? [
+              empty(customHostnameCertificateId)
+                ? { name: customHostname, bindingType: 'Disabled' }
+                : { name: customHostname, bindingType: 'SniEnabled', certificateId: customHostnameCertificateId }
+            ]
+          : []
       }
       registries: empty(registryUsername)
         ? []
@@ -344,9 +364,24 @@ resource auth 'Microsoft.App/containerApps/authConfigs@2024-03-01' = if (sso) {
   }
 }
 
+// Free, issued by DigiCert, and renewed by Azure. Validated through the CNAME.
+resource certificate 'Microsoft.App/managedEnvironments/managedCertificates@2024-03-01' = if (requestCertificate) {
+  parent: containerEnv
+  name: take('${appName}-${replace(customHostname, '.', '-')}', 60)
+  location: location
+  properties: {
+    subjectName: customHostname
+    domainControlValidation: 'CNAME'
+  }
+  dependsOn: [app]
+}
+
 output appName string = app.name
-output appUrl string = 'https://${app.properties.configuration.ingress.fqdn}'
+output appUrl string = 'https://${publicHost}'
+output defaultUrl string = 'https://${app.properties.configuration.ingress.fqdn}'
 @description('Register this as a Web redirect URI on the Entra ID app registration.')
-output ssoRedirectUri string = 'https://${app.properties.configuration.ingress.fqdn}/.auth/login/aad/callback'
+output ssoRedirectUri string = 'https://${publicHost}/.auth/login/aad/callback'
+@description('Set when this run requested a certificate; the workflow deploys again with it to bind the hostname.')
+output requestedCertificateId string = requestCertificate ? certificate.id : ''
 output postgresServer string = postgres.properties.fullyQualifiedDomainName
 output storageAccount string = storage.name
