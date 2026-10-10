@@ -37,6 +37,8 @@ jobs:
           HAS_POSTGRES_PASSWORD: ${{ secrets.POSTGRES_ADMIN_PASSWORD != '' }}
           SSO_CLIENT_ID: ${{ vars.SSO_CLIENT_ID || secrets.SSO_CLIENT_ID }}
           HAS_SSO_SECRET: ${{ secrets.SSO_CLIENT_SECRET != '' }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID || secrets.GOOGLE_CLIENT_ID }}
+          HAS_GOOGLE_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET != '' }}
         run: |
           missing=()
           [ -n "$AZURE_CLIENT_ID" ]       || missing+=("AZURE_CLIENT_ID")
@@ -49,6 +51,9 @@ jobs:
           if [ -n "$SSO_CLIENT_ID" ] && [ "$HAS_SSO_SECRET" != true ]; then
             missing+=("SSO_CLIENT_SECRET (secret; SSO_CLIENT_ID is set)")
           fi
+          if [ -n "$GOOGLE_CLIENT_ID" ] && [ "$HAS_GOOGLE_SECRET" != true ]; then
+            missing+=("GOOGLE_CLIENT_SECRET (secret; GOOGLE_CLIENT_ID is set)")
+          fi
           if [ ${#missing[@]} -gt 0 ]; then
             echo "::error title=Missing configuration::Not set: ${missing[*]}"
             echo "Add them under Settings -> Secrets and variables -> Actions, as repository"
@@ -56,7 +61,7 @@ jobs:
             echo "Each one can be a variable or a secret. infra/bootstrap.sh prints them."
             exit 1
           fi
-          echo "Configuration complete: resource group $RESOURCE_GROUP, sign-in $([ -n "$SSO_CLIENT_ID" ] && echo "Microsoft SSO" || echo "passwords")"
+          echo "Configuration complete: resource group $RESOURCE_GROUP, sign-in: password${SSO_CLIENT_ID:+, Microsoft}${GOOGLE_CLIENT_ID:+, Google}"
       - uses: azure/login@v2
         with:
           client-id: ${{ env.AZURE_CLIENT_ID }}
@@ -70,9 +75,11 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_ADMIN_PASSWORD }}
           ADMIN_PASSWORD: ${{ secrets.TYPECAST_ADMIN_PASSWORD }}
           SSO_CLIENT_SECRET: ${{ secrets.SSO_CLIENT_SECRET }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
           ADMIN_EMAIL: ${{ vars.TYPECAST_ADMIN_EMAIL || secrets.TYPECAST_ADMIN_EMAIL }}
           SSO_CLIENT_ID: ${{ vars.SSO_CLIENT_ID || secrets.SSO_CLIENT_ID }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID || secrets.GOOGLE_CLIENT_ID }}
           REGISTRY_USERNAME: ${{ vars.REGISTRY_USERNAME || secrets.REGISTRY_USERNAME }}
           APP_NAME: ${{ vars.AZURE_CONTAINERAPP_NAME || 'typecast' }}
           POSTGRES_LOCATION: ${{ vars.POSTGRES_LOCATION }}
@@ -102,7 +109,8 @@ jobs:
               --arg image "$image" --arg appName "$APP_NAME" --arg adminEmail "$ADMIN_EMAIL" \
               --arg adminPassword "$ADMIN_PASSWORD" --arg secretKey "$SECRET_KEY" \
               --arg postgresAdminPassword "$POSTGRES_PASSWORD" \
-              --arg ssoClientId "$SSO_CLIENT_ID" --arg ssoClientSecret "$SSO_CLIENT_SECRET" \
+              --arg microsoftClientId "$SSO_CLIENT_ID" --arg microsoftClientSecret "$SSO_CLIENT_SECRET" \
+              --arg googleClientId "$GOOGLE_CLIENT_ID" --arg googleClientSecret "$GOOGLE_CLIENT_SECRET" \
               --arg registryUsername "$REGISTRY_USERNAME" --arg registryPassword "$REGISTRY_PASSWORD" \
               --arg postgresLocation "$POSTGRES_LOCATION" --arg location "$AZURE_LOCATION" \
               --arg customHostname "$CUSTOM_HOSTNAME" --arg customHostnameCertificateId "$2" \
@@ -134,5 +142,5 @@ jobs:
             --output json || true
       - name: Summary
         run: |
-          jq -r '"### Typecast infrastructure\n\n| | |\n|---|---|\n| App | \(.appUrl.value) |\n| Default address | \(.defaultUrl.value) |\n| SSO redirect URI | `\(.ssoRedirectUri.value)` |\n| PostgreSQL | `\(.postgresServer.value)` |"' \
+          jq -r '"### Typecast infrastructure\n\n| | |\n|---|---|\n| App | \(.appUrl.value) |\n| Default address | \(.defaultUrl.value) |\n| Microsoft redirect URI | `\(.microsoftRedirectUri.value)` |\n| Google redirect URI | `\(.googleRedirectUri.value)` |\n| PostgreSQL | `\(.postgresServer.value)` |"' \
             "$RUNNER_TEMP/outputs.json" >> "$GITHUB_STEP_SUMMARY"

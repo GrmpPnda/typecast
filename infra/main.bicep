@@ -2,7 +2,7 @@
 //
 // One container app serving the frontend and API, PostgreSQL Flexible Server for
 // the database, and an Azure Files share mounted at /data for uploads. Optional
-// Microsoft Entra ID single sign-on through Container Apps authentication.
+// "Sign in with Microsoft" and "Sign in with Google", run by Typecast itself.
 //
 // Deployed by .github/workflows/infra.yml; safe to re-run. See infra/README.md.
 
@@ -45,17 +45,24 @@ param postgresAdminPassword string
 @allowed(['verify-full', 'require'])
 param postgresSslMode string = 'verify-full'
 
-@description('Application (client) ID of the Entra ID app registration. Empty disables single sign-on, and the app uses its own passwords.')
-param ssoClientId string = ''
+@description('Application (client) ID of the Entra ID app registration for "Sign in with Microsoft". Empty: no Microsoft button.')
+param microsoftClientId string = ''
 
 @description('Client secret of that app registration.')
 @secure()
-param ssoClientSecret string = ''
+param microsoftClientSecret string = ''
 
-@description('Entra ID tenant that signs people in.')
+@description('Entra ID directory whose accounts may sign in with Microsoft. Emails from it are trusted to match existing accounts.')
 param tenantId string = subscription().tenantId
 
-@description('Expiry of the SAS that lets the sign-in layer use its token store. Renew by re-running before then.')
+@description('OAuth client ID from Google Cloud for "Sign in with Google". Empty: no Google button.')
+param googleClientId string = ''
+
+@description('Client secret of that Google OAuth client.')
+@secure()
+param googleClientSecret string = ''
+
+@description('Expiry of the SAS behind the retired Easy Auth token store secret; see the note on legacySecrets.')
 param tokenStoreSasExpiry string = dateTimeAdd(utcNow(), 'P1Y')
 
 @description('Your own hostname for the app, such as typecast.example.com. Needs a CNAME to the app\'s default address and an asuid TXT record first; see infra/README.md. Empty serves only the default address.')
@@ -69,7 +76,8 @@ param registryUsername string = ''
 @secure()
 param registryPassword string = ''
 
-var sso = !empty(ssoClientId)
+var microsoft = !empty(microsoftClientId)
+var google = !empty(googleClientId)
 // A managed certificate can only be issued for a hostname already attached to
 // the app, and the app can only serve HTTPS on it once the certificate exists.
 // So the first run attaches it unbound and requests the certificate; the
@@ -126,16 +134,15 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01'
   name: 'default'
 }
 
-resource tokenContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (sso) {
+resource tokenContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = if (microsoft) {
   parent: blobService
   name: tokenContainerName
   properties: { publicAccess: 'None' }
 }
 
-// Container Apps authentication forwards the signed ID token in
-// X-MS-TOKEN-AAD-ID-TOKEN only when its token store is enabled, and the store
-// needs a blob container SAS. Typecast verifies that token, which is what makes
-// forged identity headers useless.
+// Easy Auth's token store, from before sign-in moved into the app. Kept only so
+// the secret it was configured with still exists while an install switches
+// Easy Auth off (see legacySecrets); remove once no install still has it on.
 var tokenStoreSas = storage.listServiceSas('2023-05-01', {
   canonicalizedResource: '/blob/${storage.name}/${tokenContainerName}'
   signedResource: 'c'
@@ -226,14 +233,18 @@ var baseSecrets = [
   { name: 'secret-key', value: secretKey }
   { name: 'database-url', value: databaseUrl }
 ]
-var adminSecrets = (!sso && !empty(adminPassword)) ? [{ name: 'admin-password', value: adminPassword }] : []
+var adminSecrets = empty(adminPassword) ? [] : [{ name: 'admin-password', value: adminPassword }]
 var registrySecrets = empty(registryPassword) ? [] : [{ name: 'registry-password', value: registryPassword }]
-var ssoSecrets = sso
+// The Microsoft secret keeps the name Easy Auth used, and the token store secret
+// stays, so neither disappears while the old Easy Auth configuration that names
+// them is being switched off in the same deployment.
+var microsoftSecrets = microsoft
   ? [
-      { name: 'microsoft-provider-authentication-secret', value: ssoClientSecret }
+      { name: 'microsoft-provider-authentication-secret', value: microsoftClientSecret }
       { name: 'token-store-sas-url', value: tokenStoreSasUrl }
     ]
   : []
+var googleSecrets = google ? [{ name: 'google-client-secret', value: googleClientSecret }] : []
 
 var baseEnv = [
   { name: 'TYPECAST_DATA_DIR', value: '/data' }
@@ -243,16 +254,22 @@ var baseEnv = [
   // The ingress terminates TLS; this redirects anything that arrives as HTTP and
   // sends HSTS. /api/health is exempt so probes are not redirected.
   { name: 'TYPECAST_FORCE_HTTPS', value: '1' }
-  { name: 'TYPECAST_AUTH_MODE', value: sso ? 'proxy' : 'multi' }
+  // Typecast shows its own sign-in page: password, plus Microsoft and Google
+  // when configured. The app, not the edge, decides who gets in.
+  { name: 'TYPECAST_AUTH_MODE', value: 'multi' }
 ]
-var adminEnv = (!sso && !empty(adminPassword)) ? [{ name: 'TYPECAST_ADMIN_PASSWORD', secretRef: 'admin-password' }] : []
-var ssoEnv = sso
+var adminEnv = empty(adminPassword) ? [] : [{ name: 'TYPECAST_ADMIN_PASSWORD', secretRef: 'admin-password' }]
+var microsoftEnv = microsoft
   ? [
-      // Both issuer forms, since Entra issues v1 or v2 tokens depending on how the
-      // app registration is configured. Discovery uses the first.
-      { name: 'TYPECAST_OIDC_ISSUER', value: '${environment().authentication.loginEndpoint}${tenantId}/v2.0,https://sts.windows.net/${tenantId}/' }
-      { name: 'TYPECAST_OIDC_AUDIENCE', value: ssoClientId }
-      { name: 'TYPECAST_PROXY_PRESET', value: 'easyauth' }
+      { name: 'TYPECAST_MICROSOFT_CLIENT_ID', value: microsoftClientId }
+      { name: 'TYPECAST_MICROSOFT_CLIENT_SECRET', secretRef: 'microsoft-provider-authentication-secret' }
+      { name: 'TYPECAST_MICROSOFT_TENANT', value: tenantId }
+    ]
+  : []
+var googleEnv = google
+  ? [
+      { name: 'TYPECAST_GOOGLE_CLIENT_ID', value: googleClientId }
+      { name: 'TYPECAST_GOOGLE_CLIENT_SECRET', secretRef: 'google-client-secret' }
     ]
   : []
 
@@ -279,7 +296,7 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
       registries: empty(registryUsername)
         ? []
         : [{ server: 'ghcr.io', username: registryUsername, passwordSecretRef: 'registry-password' }]
-      secrets: concat(baseSecrets, adminSecrets, registrySecrets, ssoSecrets)
+      secrets: concat(baseSecrets, adminSecrets, registrySecrets, microsoftSecrets, googleSecrets)
     }
     template: {
       containers: [
@@ -290,7 +307,7 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             cpu: json('0.5')
             memory: '1Gi'
           }
-          env: concat(baseEnv, adminEnv, ssoEnv)
+          env: concat(baseEnv, adminEnv, microsoftEnv, googleEnv)
           volumeMounts: [{ volumeName: 'data', mountPath: '/data' }]
           probes: [
             {
@@ -330,37 +347,15 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-resource auth 'Microsoft.App/containerApps/authConfigs@2024-03-01' = if (sso) {
+// Container Apps authentication (Easy Auth), switched off explicitly. An install
+// that ran the earlier template has it on, and a deployment never deletes a
+// resource just because the template stopped declaring it: left alone, it would
+// keep sending everyone to Microsoft before Typecast's own sign-in page.
+resource auth 'Microsoft.App/containerApps/authConfigs@2024-03-01' = {
   parent: app
   name: 'current'
   properties: {
-    platform: { enabled: true }
-    globalValidation: {
-      unauthenticatedClientAction: 'RedirectToLoginPage'
-      redirectToProvider: 'azureactivedirectory'
-      // Probes and the deploy workflow's check reach this without signing in.
-      excludedPaths: ['/api/health']
-    }
-    identityProviders: {
-      azureActiveDirectory: {
-        enabled: true
-        registration: {
-          clientId: ssoClientId
-          clientSecretSettingName: 'microsoft-provider-authentication-secret'
-          openIdIssuer: 'https://sts.windows.net/${tenantId}/v2.0'
-        }
-        validation: {
-          allowedAudiences: ['api://${ssoClientId}']
-        }
-      }
-    }
-    login: {
-      tokenStore: {
-        enabled: true
-        azureBlobStorage: { sasUrlSettingName: 'token-store-sas-url' }
-      }
-    }
-    httpSettings: { requireHttps: true }
+    platform: { enabled: false }
   }
 }
 
@@ -379,8 +374,10 @@ resource certificate 'Microsoft.App/managedEnvironments/managedCertificates@2024
 output appName string = app.name
 output appUrl string = 'https://${publicHost}'
 output defaultUrl string = 'https://${app.properties.configuration.ingress.fqdn}'
-@description('Register this as a Web redirect URI on the Entra ID app registration.')
-output ssoRedirectUri string = 'https://${publicHost}/.auth/login/aad/callback'
+@description('Register as a Web redirect URI on the Entra ID app registration.')
+output microsoftRedirectUri string = 'https://${publicHost}/api/auth/oidc/microsoft/callback'
+@description('Register as an authorised redirect URI on the Google OAuth client.')
+output googleRedirectUri string = 'https://${publicHost}/api/auth/oidc/google/callback'
 @description('Set when this run requested a certificate; the workflow deploys again with it to bind the hostname.')
 output requestedCertificateId string = requestCertificate ? certificate.id : ''
 output postgresServer string = postgres.properties.fullyQualifiedDomainName
