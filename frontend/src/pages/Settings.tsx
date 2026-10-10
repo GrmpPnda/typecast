@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
 import {
   Plus,
   Trash2,
@@ -2528,6 +2529,18 @@ function describeRows(rows: Record<string, number>): string {
   return parts.length ? parts.join(", ") : "nothing";
 }
 
+/** Why an import failed, in words that say whether anything changed. */
+function importError(err: unknown): string {
+  if (axios.isAxiosError(err)) {
+    if (!err.response) {
+      // The upload broke off: a dropped connection or a proxy closing it.
+      return "The upload was interrupted before the server received it. Nothing was imported; try again.";
+    }
+    return apiError(err, `Import failed (HTTP ${err.response.status}). Nothing was imported.`);
+  }
+  return err instanceof Error ? err.message : "Import failed.";
+}
+
 function BackupRestoreSection() {
   const queryClient = useQueryClient();
   const [downloading, setDownloading] = useState(false);
@@ -2536,6 +2549,9 @@ function BackupRestoreSection() {
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
+  // State updates land a render later, so a second file chosen in that gap would
+  // start a second import whose messages overwrite the first's. A ref is immediate.
+  const importInFlight = useRef(false);
 
   const handleBackup = async () => {
     setDownloading(true);
@@ -2583,12 +2599,16 @@ function BackupRestoreSection() {
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (importRef.current) importRef.current.value = "";
-    if (!file) return;
+    if (!file || importInFlight.current) return;
+    importInFlight.current = true;
     setImporting(true);
     setMessage(null);
     try {
       // Check first, so the confirmation can say exactly what will arrive.
       const preview = await importBackup(file, true);
+      if (preview.status !== "checked" || !preview.dry_run) {
+        throw new Error("The server did not return a check of this backup.");
+      }
       const conflicts = preview.file_conflicts.length
         ? `\n\n${preview.file_conflicts.length} file(s) already exist here with different ` +
           "contents and will be left as they are."
@@ -2602,6 +2622,15 @@ function BackupRestoreSection() {
         return;
       }
       const result = await importBackup(file);
+      // Report success only for a response that says it imported something. A
+      // dry-run answer, an empty one, or anything a proxy put in its place is a
+      // failure, however it arrived.
+      if (result.status !== "imported" || result.dry_run || !(result.total_rows > 0)) {
+        throw new Error(
+          "The import was not confirmed by the server, so nothing should be assumed " +
+          "imported. Check the library, then try again."
+        );
+      }
       // New works, profiles, and fonts: every cached list is now stale.
       await queryClient.invalidateQueries();
       setMessage({
@@ -2611,8 +2640,9 @@ function BackupRestoreSection() {
           "Re-enter any API keys this server needs below.",
       });
     } catch (err) {
-      setMessage({ type: "error", text: apiError(err, "Import failed.") });
+      setMessage({ type: "error", text: importError(err) });
     } finally {
+      importInFlight.current = false;
       setImporting(false);
     }
   };
