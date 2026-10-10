@@ -344,7 +344,9 @@ async def test_force_https_redirects_except_for_health_probes(monkeypatch, schem
         assert "max-age=" in page.headers["strict-transport-security"]
 
 
-async def test_the_single_container_image_serves_frontend_routes(tmp_path, monkeypatch):
+async def test_the_single_container_image_serves_frontend_routes(
+    tmp_path, monkeypatch, session_factory
+):
     """A refresh or bookmark of /settings must load the app, not a JSON 404.
 
     Plain StaticFiles had no fallback. Azure runs this image, so every deep link
@@ -359,7 +361,18 @@ async def test_the_single_container_image_serves_frontend_routes(tmp_path, monke
     (tmp_path / "assets" / "app.js").write_text("console.log(1)")
     monkeypatch.setattr(main_module, "STATIC_DIR", tmp_path)
 
+    from app.db.engine import get_db
+
     application = main_module.create_app()
+
+    # /uploads goes through sign-in, which needs a database. Without this the
+    # test used whatever DATABASE_URL pointed at: the developer's own database
+    # locally, and an empty one in CI, where it failed.
+    async def override_get_db():
+        async with session_factory() as session:
+            yield session
+
+    application.dependency_overrides[get_db] = override_get_db
     async with AsyncClient(transport=ASGITransport(app=application), base_url="http://t") as ac:
         for route in ("/", "/settings", "/work/123/chapter/456"):
             resp = await ac.get(route)
