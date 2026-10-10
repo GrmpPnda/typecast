@@ -10,6 +10,12 @@ permissions:
   contents: read
   id-token: write
 
+defaults:
+  run:
+    # Naming bash gets "-eo pipefail". The implicit default omits pipefail, so a
+    # failing command piped into tee or jq reported success.
+    shell: bash
+
 jobs:
   apply:
     name: Apply infra/main.bicep
@@ -74,6 +80,7 @@ jobs:
           image="ghcr.io/${GITHUB_REPOSITORY,,}:latest"
           params="$RUNNER_TEMP/params.json"
           umask 077
+          trap 'rm -f "$params"' EXIT
           jq -n \
             --arg image "$image" --arg appName "$APP_NAME" --arg adminEmail "$ADMIN_EMAIL" \
             --arg adminPassword "$ADMIN_PASSWORD" --arg secretKey "$SECRET_KEY" \
@@ -90,7 +97,14 @@ jobs:
             --template-file infra/main.bicep \
             --parameters "@$params" \
             --query properties.outputs --output json | tee "$RUNNER_TEMP/outputs.json"
-          rm -f "$params"
+      - name: Show what failed
+        if: failure()
+        run: |
+          echo "Failed operations in deployment typecast-${GITHUB_RUN_NUMBER}:"
+          az deployment operation group list \
+            --resource-group "$RESOURCE_GROUP" --name "typecast-${GITHUB_RUN_NUMBER}" \
+            --query "[?properties.provisioningState=='Failed'].{resource:properties.targetResource.resourceName, type:properties.targetResource.resourceType, error:properties.statusMessage}" \
+            --output json || true
       - name: Summary
         run: |
           jq -r '"### Typecast infrastructure\n\n| | |\n|---|---|\n| App | \(.appUrl.value) |\n| SSO redirect URI | `\(.ssoRedirectUri.value)` |\n| PostgreSQL | `\(.postgresServer.value)` |"' \

@@ -16,6 +16,12 @@ concurrency:
 permissions:
   contents: read
 
+defaults:
+  run:
+    # Naming bash gets "-eo pipefail". The implicit default omits pipefail, so a
+    # failing command piped into tee or jq reported success.
+    shell: bash
+
 jobs:
   test:
     uses: ./.github/workflows/ci.yml
