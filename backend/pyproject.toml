@@ -43,6 +43,9 @@ dependencies = [
     "httpx>=0.26.0",
     # Verifies identity tokens from the single sign-on provider (proxy auth mode).
     "PyJWT>=2.8",
+    # CA bundle for verifying a Postgres server's certificate (sslmode=verify-full).
+    # httpx already depends on it; declared because app/config.py imports it.
+    "certifi>=2024.2.2",
 ]
 
 [project.optional-dependencies]

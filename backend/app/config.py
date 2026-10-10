@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+from collections.abc import MutableMapping
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -68,6 +70,38 @@ def normalize_database_url(url: str) -> str:
     return urlunsplit((scheme, split.netloc, split.path, urlencode(query), split.fragment))
 
 
+def ensure_ssl_root_cert(url: str, env: MutableMapping[str, str] | None = None) -> str | None:
+    """Give certificate verification something to verify against.
+
+    Under ``verify-ca``/``verify-full`` asyncpg behaves like libpq: it trusts only
+    ``sslrootcert`` from the URL, then ``PGSSLROOTCERT``, then
+    ``~/.postgresql/root.crt``, and refuses to connect when none exists. It never
+    falls back to the system store, so on a container with no root.crt every
+    connection failed before reaching the server. Point ``PGSSLROOTCERT`` at
+    certifi's Mozilla bundle, which carries the public roots managed Postgres
+    services chain to. A CA file the deployer supplies either way wins.
+
+    Returns the path set, or None when nothing needed setting.
+    """
+    env = os.environ if env is None else env
+    split = urlsplit(url)
+    if not split.scheme.startswith("postgres"):
+        return None
+    query = dict(parse_qsl(split.query, keep_blank_values=True))
+    mode = (query.get("ssl") or query.get("sslmode") or "").lower()
+    if mode not in ("verify-ca", "verify-full"):
+        return None
+    if query.get("sslrootcert") or env.get("PGSSLROOTCERT"):
+        logger.debug("Postgres CA file supplied by the deployer; leaving it alone")
+        return None
+    import certifi
+
+    bundle = certifi.where()
+    env["PGSSLROOTCERT"] = bundle
+    logger.info("ssl=%s with no root certificate configured; trusting %s", mode, bundle)
+    return bundle
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
@@ -89,3 +123,6 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+# Before any engine exists, so the app engine, the migration engine, and the
+# Alembic CLI all connect with it.
+ensure_ssl_root_cert(settings.database_url)

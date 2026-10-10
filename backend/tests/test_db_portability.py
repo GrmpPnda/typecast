@@ -58,6 +58,58 @@ def test_tls_is_never_silently_dropped():
     assert "ssl=disable" not in out
 
 
+@pytest.mark.parametrize("mode", ["verify-full", "verify-ca"])
+def test_certificate_verification_gets_a_ca_bundle(mode):
+    """asyncpg looks only at ~/.postgresql/root.crt by default, which no container
+    has, so verify-full failed every connection on Azure."""
+    import certifi
+
+    from app.config import ensure_ssl_root_cert
+
+    env: dict[str, str] = {}
+    url = normalize_database_url(f"postgresql://u:p@h/db?sslmode={mode}")
+    assert ensure_ssl_root_cert(url, env) == certifi.where()
+    assert env == {"PGSSLROOTCERT": certifi.where()}
+
+
+@pytest.mark.parametrize(
+    ("url", "env"),
+    [
+        ("postgresql+asyncpg://u:p@h/db?ssl=verify-full", {"PGSSLROOTCERT": "/mine.pem"}),
+        ("postgresql+asyncpg://u:p@h/db?ssl=verify-full&sslrootcert=/mine.pem", {}),
+        ("postgresql+asyncpg://u:p@h/db?ssl=require", {}),
+        ("postgresql+asyncpg://u:p@h/db", {}),
+        ("sqlite+aiosqlite:////data/typecast.db", {}),
+    ],
+)
+def test_a_supplied_ca_or_no_verification_is_left_alone(url, env):
+    from app.config import ensure_ssl_root_cert
+
+    before = dict(env)
+    assert ensure_ssl_root_cert(url, env) is None
+    assert env == before
+
+
+async def test_asyncpg_finds_the_bundle_it_was_given(monkeypatch, tmp_path):
+    """The real driver, with HOME pointed somewhere with no root.crt: the error is
+    about the unreachable server, not about a missing certificate file."""
+    import asyncpg
+
+    from app.config import ensure_ssl_root_cert
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("PGSSLROOTCERT", raising=False)
+    url = "postgresql://u:p@127.0.0.1:1/db?ssl=verify-full"
+    with pytest.raises(asyncpg.ClientConfigurationError, match="root.crt"):
+        await asyncpg.connect(url.replace("ssl=", "sslmode="), timeout=2)
+
+    env: dict[str, str] = {}
+    ensure_ssl_root_cert(url, env)
+    monkeypatch.setenv("PGSSLROOTCERT", env["PGSSLROOTCERT"])
+    with pytest.raises(OSError):
+        await asyncpg.connect(url.replace("ssl=", "sslmode="), timeout=2)
+
+
 def test_password_special_characters_survive_normalization():
     url = "postgresql://u:p%40ss%2Fword@h:5432/db?sslmode=require"
     assert "p%40ss%2Fword" in normalize_database_url(url)
