@@ -104,19 +104,31 @@ can move between servers.
 Sign-in moves to Microsoft, and Typecast has no passwords at all. Do this after
 step 4, because the app registration needs the app's address.
 
-1. In the [Entra admin center](https://entra.microsoft.com): **App registrations** →
-   **New registration**. Name it Typecast, choose **Accounts in this
-   organizational directory only**, and set a **Web** redirect URI to the
-   `SSO redirect URI` from the Infrastructure run summary
-   (`https://<app>/.auth/login/aad/callback`).
-2. On the new registration: **Authentication** → tick **ID tokens**. Then
-   **Certificates & secrets** → **New client secret**, and copy its value.
-3. In GitHub, add the variable `SSO_CLIENT_ID` (the registration's **Application
-   (client) ID**) and the secret `SSO_CLIENT_SECRET`. Run **Infrastructure**
-   again.
-4. **Restrict who can sign in.** **Enterprise applications** → Typecast →
-   **Properties** → **Assignment required** → **Yes**, then add people under
-   **Users and groups**. Without this, everyone in your tenant can sign in.
+1. In Cloud Shell, create the app registration, require assignment, and assign
+   yourself. Without assignment required, everyone in your directory can sign in.
+
+   ```bash
+   FQDN=$(az containerapp show -n typecast -g typecast-rg --query properties.configuration.ingress.fqdn -o tsv)
+   APP_ID=$(az ad app create --display-name Typecast --sign-in-audience AzureADMyOrg \
+     --web-redirect-uris "https://$FQDN/.auth/login/aad/callback" \
+     --enable-id-token-issuance true --query appId -o tsv)
+   SP_ID=$(az ad sp create --id "$APP_ID" --query id -o tsv)
+   # The tag makes it appear under Enterprise applications; the CLI omits it.
+   az ad sp update --id "$SP_ID" --set appRoleAssignmentRequired=true \
+     --add tags WindowsAzureActiveDirectoryIntegratedApp
+   az rest --method POST \
+     --uri "https://graph.microsoft.com/v1.0/servicePrincipals/$SP_ID/appRoleAssignedTo" \
+     --body "{\"principalId\":\"$(az ad signed-in-user show --query id -o tsv)\",\"resourceId\":\"$SP_ID\",\"appRoleId\":\"00000000-0000-0000-0000-000000000000\"}"
+   echo "SSO_CLIENT_ID      $APP_ID"
+   echo "SSO_CLIENT_SECRET  $(az ad app credential reset --id "$APP_ID" --display-name github --years 1 --query password -o tsv)"
+   ```
+
+   Assign other people under **Enterprise applications** → Typecast → **Users and
+   groups**. The secret expires in a year: re-run the last line, update the GitHub
+   secret, and run **Infrastructure**.
+2. In GitHub, add the variable `SSO_CLIENT_ID` and the secret `SSO_CLIENT_SECRET`.
+   Run **Infrastructure** again. It switches the app to single sign-on by itself;
+   no auth-mode setting is needed.
 
 `TYPECAST_ADMIN_EMAIL` becomes the administrator the first time that person signs
 in. Add everyone else in **Settings → Users** by the email they sign in with.
