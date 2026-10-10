@@ -39,6 +39,8 @@ class AdminUserResponse(BaseModel):
     # Single sign-on: whether this person has signed in yet. An unlinked account
     # links on their first sign-in by matching email.
     sso_linked: bool = False
+    # How the account signs in; None means its first single sign-on decides.
+    auth_provider: str | None = None
 
 
 class UserCreateRequest(BaseModel):
@@ -49,6 +51,9 @@ class UserCreateRequest(BaseModel):
     # the account links to the person's identity on their first sign-in.
     password: str | None = Field(default=None, min_length=MIN_PASSWORD_LENGTH)
     is_admin: bool = False
+    # "password", "microsoft", "google", or "any" (whichever provider they sign
+    # in with first). Ignored under proxy sign-in, where it is always the proxy.
+    sign_in: str = "password"
 
 
 class UserPatchRequest(BaseModel):
@@ -70,6 +75,7 @@ def _response(user: User) -> dict:
         "is_active": user.is_active,
         "is_admin": user.is_admin,
         "sso_linked": user.external_id is not None,
+        "auth_provider": user.auth_provider,
     }
 
 
@@ -108,13 +114,21 @@ async def create_account(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
+    from app.services import accounts
     from app.services import auth as auth_service
 
     password = data.password
+    method: str | None = data.sign_in
     if auth_service.AUTH_MODE == "proxy":
-        password = secrets.token_urlsafe(32)
-    elif not password:
-        raise HTTPException(status_code=422, detail="A password is required")
+        password, method = secrets.token_urlsafe(32), accounts.EXTERNAL
+    elif method == accounts.PASSWORD:
+        if not password:
+            raise HTTPException(status_code=422, detail="A password is required")
+    elif method in (*accounts.PROVIDERS, "any"):
+        # No password: they sign in with the provider, which binds the account.
+        password, method = secrets.token_urlsafe(32), (None if method == "any" else method)
+    else:
+        raise HTTPException(status_code=422, detail=f"Unknown sign-in method {method!r}")
     try:
         user = await create_user(
             db,
@@ -128,7 +142,10 @@ async def create_account(
         logger.info("User creation rejected: %s", exc)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    logger.info("%s created account %s", admin.email, user.email)
+    if user.auth_provider != method:
+        user.auth_provider = method
+        await db.commit()
+    logger.info("%s created account %s (sign-in: %s)", admin.email, user.email, method or "any")
     return _response(user)
 
 
@@ -185,7 +202,9 @@ async def reset_account_password(
         )
     user = await _load(db, user_id)
     try:
-        await set_password(db, user, data.password)
+        # Also the recovery path for an account whose Google or Microsoft sign-in
+        # was lost: it becomes a password account.
+        await set_password(db, user, data.password, switch_to_password=True)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     logger.warning("%s reset the password for %s", admin.email, user.email)

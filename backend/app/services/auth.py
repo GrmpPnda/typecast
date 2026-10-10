@@ -137,8 +137,14 @@ async def create_user(
     return user
 
 
-async def set_password(db: AsyncSession, user: User, password: str) -> None:
+async def set_password(
+    db: AsyncSession, user: User, password: str, *, switch_to_password: bool = False
+) -> None:
     """Replace a user's password hash.
+
+    ``switch_to_password`` also makes it a password account, unbinding any
+    single sign-on identity: how an administrator restores access to someone
+    who lost their Google or Microsoft account.
 
     Re-fetches the row through ``db`` before writing. Mutating the passed
     instance directly is a silent no-op when it belongs to a different session,
@@ -152,8 +158,16 @@ async def set_password(db: AsyncSession, user: User, password: str) -> None:
     if target is None:
         raise ValueError("User no longer exists")
     target.hashed_password = hashed
+    previous = target.auth_provider
+    if switch_to_password:
+        target.auth_provider = "password"
+        target.external_id = None
     await db.commit()
     user.hashed_password = hashed  # keep the caller's copy consistent
+    if switch_to_password:
+        user.auth_provider, user.external_id = "password", None
+        if previous != "password":
+            logger.warning("%s now signs in with a password (was %s)", target.email, previous)
     logger.info("Password changed for %s", target.email)
 
 
@@ -172,11 +186,18 @@ async def ensure_admin_user(db: AsyncSession) -> None:
     """
     email = os.environ.get("TYPECAST_ADMIN_EMAIL", "").strip()
     password = os.environ.get("TYPECAST_ADMIN_PASSWORD", "")
+    method = "password"
     if AUTH_MODE == "proxy" and email:
         # Single sign-on: the account links to this person's identity the first
         # time they sign in, so it needs no usable password. Naming the admin up
         # front also beats "first person to sign in becomes the administrator".
-        password = secrets.token_urlsafe(32)
+        password, method = secrets.token_urlsafe(32), "external"
+    elif AUTH_MODE == "multi" and email and not password:
+        from app.services import oidc
+
+        if oidc.PROVIDERS:
+            # Claimed by their first sign-in with Microsoft or Google.
+            password, method = secrets.token_urlsafe(32), None
     if not email or not password:
         return
 
@@ -195,7 +216,12 @@ async def ensure_admin_user(db: AsyncSession) -> None:
             password=password,
             is_admin=True,
         )
-        logger.warning("Bootstrapped first admin account: %s", email)
+        if method != "password":
+            from sqlalchemy import update
+
+            await db.execute(update(User).where(User.email == email).values(auth_provider=method))
+            await db.commit()
+        logger.warning("Bootstrapped first admin account: %s (sign-in: %s)", email, method or "any")
     except ValueError as exc:
         logger.error("Admin bootstrap failed: %s", exc)
 

@@ -153,7 +153,9 @@ _KIND_BY_PARAM = {
     "conversation_id": "conversation",
     "entry_id": "codex_entry",
 }
-NOT_OWNED_PARAMS = frozenset({"font_id", "profile_id", "user_id"})
+# Not resource IDs owned by an account: install-wide resources, accounts, and
+# the sign-in provider name.
+NOT_OWNED_PARAMS = frozenset({"font_id", "profile_id", "user_id", "provider_id"})
 
 
 def ownership_kind(route_path: str, param: str) -> str | None:

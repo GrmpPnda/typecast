@@ -30,6 +30,7 @@ from app.api import (
     images,
     imports,
     narration,
+    oidc,
     profiles,
     scenes,
     sections,
@@ -150,6 +151,8 @@ def create_app() -> FastAPI:
 
     # auth checks per route: login, setup, and mode must work without a token.
     app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+    # Public: how someone with no session gets one. See app/api/oidc.py.
+    app.include_router(oidc.router, prefix="/api/auth/oidc", tags=["auth"])
     app.include_router(users.router, prefix="/api/users", tags=["users"], dependencies=admin_only)
     app.include_router(backup.router, prefix="/api/backup", tags=["backup"],
                        dependencies=admin_only)

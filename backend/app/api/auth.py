@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.db.engine import get_db
 from app.models.user import User
-from app.services import throttle
+from app.services import accounts, throttle
 from app.services.auth import (
     AUTH_MODE,
     MIN_PASSWORD_LENGTH,
@@ -58,6 +58,8 @@ class UserResponse(BaseModel):
     avatar_url: str | None
     bio: str | None
     is_admin: bool
+    # "password", "microsoft", "google", "external", or None (not signed in yet).
+    auth_provider: str | None = None
 
     class Config:
         from_attributes = True
@@ -88,6 +90,8 @@ class AuthModeResponse(BaseModel):
     # Proxy mode only: where the authenticating proxy signs people in and out.
     login_url: str | None = None
     logout_url: str | None = None
+    # Multi-user mode: the providers this server offers for signing in.
+    providers: list[dict] = []
 
 
 _SSO_ONLY = "Sign-in is handled by single sign-on on this server."
@@ -144,6 +148,13 @@ async def get_auth_mode(db: AsyncSession = Depends(get_db)):
 
         response["login_url"] = sso.CONFIG.login_url
         response["logout_url"] = sso.CONFIG.logout_url
+    elif AUTH_MODE == "multi":
+        from app.services import oidc
+
+        response["providers"] = [
+            {"id": p.id, "name": p.name, "start_url": f"/api/auth/oidc/{p.id}/start"}
+            for p in oidc.PROVIDERS.values()
+        ]
     return response
 
 
@@ -206,6 +217,13 @@ async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends
     # the server nothing.
     _check_throttle(data.email, client)
     user = await get_user_by_email(db, data.email)
+    refusal = accounts.password_refusal(user) if user else None
+    if refusal:
+        # Counted like a failure, so this cannot be used to probe freely for
+        # which accounts use which provider.
+        throttle.password_checks.record_failure(data.email, client)
+        logger.info("Password sign-in refused for %s: %s", data.email, user.auth_provider)
+        raise HTTPException(status_code=403, detail=refusal)
     if not user or not verify_password(data.password, user.hashed_password):
         throttle.password_checks.record_failure(data.email, client)
         logger.warning("Failed login attempt for %s from %s", data.email, client)
@@ -322,6 +340,12 @@ async def change_my_password(
     the account permanently.
     """
     _refuse_in_proxy_mode()
+    if accounts.password_refusal(user):
+        raise HTTPException(
+            status_code=400,
+            detail="This account has no password to change: it signs in with "
+            f"{accounts.LABELS.get(user.auth_provider or '', 'single sign-on')}.",
+        )
     # Shares sign-in's counts: a stolen token must not become a way to guess the
     # password without limit.
     client = _client(request)
@@ -343,6 +367,7 @@ def _user_response(user: User) -> dict:
         "email": user.email,
         "username": user.username,
         "display_name": user.display_name,
+        "auth_provider": user.auth_provider,
         "avatar_url": user.avatar_url,
         "bio": user.bio,
         "is_admin": user.is_admin,

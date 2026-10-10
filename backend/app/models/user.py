@@ -26,3 +26,10 @@ class User(BaseModel):
     external_id: Mapped[str | None] = mapped_column(
         String(255), nullable=True, default=None, unique=True, index=True
     )
+    # The one way this account signs in: "password", "microsoft", "google", or
+    # "external" (an authenticating proxy). None: created by an administrator
+    # for single sign-on and not signed in to yet, so its first sign-in decides.
+    # See app/services/accounts.py for the rules.
+    auth_provider: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, default="password"
+    )

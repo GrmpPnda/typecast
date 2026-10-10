@@ -311,6 +311,7 @@ async def account_for(db: AsyncSession, identity: Identity) -> User:
             if not candidate.is_active:
                 raise SSOError(403, "This account has been disabled")
             candidate.external_id = identity.external_id
+            candidate.auth_provider = "external"
             await db.commit()
             logger.warning(
                 "Linked account %s to SSO identity %s", candidate.email, identity.external_id
@@ -328,6 +329,7 @@ async def account_for(db: AsyncSession, identity: Identity) -> User:
             hashed_password=_unusable_password(),
             is_admin=True,
             external_id=identity.external_id,
+            auth_provider="external",
         )
         db.add(user)
         try:

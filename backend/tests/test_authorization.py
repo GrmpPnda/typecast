@@ -57,6 +57,10 @@ PUBLIC = {
     ("POST", "/api/auth/setup"),  # refuses once any account exists
     ("GET", "/api/gdrive/callback"),  # Google's redirect; guarded by single-use state
     ("DELETE", "/api/auth/session"),  # sign-out: only clears the caller's own cookie
+    # Sign-in with a provider: state bound to the browser, PKCE, nonce, single-use code.
+    ("GET", "/api/auth/oidc/{provider_id}/start"),
+    ("GET", "/api/auth/oidc/{provider_id}/callback"),
+    ("POST", "/api/auth/oidc/exchange"),
 }
 
 # Install-wide settings and shared resources: readable by any account, but only an
