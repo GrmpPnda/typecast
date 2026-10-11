@@ -523,7 +523,7 @@ export default function WorkDetail() {
         Back to Library
       </Link>
 
-      <div className="flex gap-6 mb-8">
+      <div className="flex gap-4 md:gap-6 mb-8">
         <div className="shrink-0">
           {work.cover_image_path ? (
             <div className="relative group">
@@ -587,10 +587,11 @@ export default function WorkDetail() {
             />
           )}
         </div>
-        <div className="flex-1 flex flex-col">
-          <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* On a phone the actions go under the title; beside it they ran off the screen. */}
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
             <div className="min-w-0">
-              <h1 className="text-2xl font-bold">{work.title}</h1>
+              <h1 className="text-xl md:text-2xl font-bold">{work.title}</h1>
               {work.author && (
                 <p className="text-tc-tertiary text-sm mt-1">by {work.author}</p>
               )}
@@ -598,7 +599,7 @@ export default function WorkDetail() {
                 <p className="text-tc-muted text-sm mt-1 line-clamp-2">{work.description}</p>
               )}
             </div>
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1.5 shrink-0 -ml-2 md:ml-0">
               <Link
                 to={`/work/${id}/settings`}
                 className="p-2 text-tc-tertiary hover:text-tc-secondary hover:bg-tc-overlay rounded-lg transition-colors"

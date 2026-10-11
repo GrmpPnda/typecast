@@ -1,5 +1,5 @@
 import { NavLink, Link } from "react-router-dom";
-import { Library, BookOpen, FileUp, SlidersHorizontal, PanelLeftClose, PanelLeftOpen, LogOut, User, Sun, Moon, Images } from "lucide-react";
+import { Library, BookOpen, FileUp, SlidersHorizontal, PanelLeftClose, PanelLeftOpen, LogOut, User, Sun, Moon, Images, X } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/auth";
 import { useTheme } from "@/theme";
@@ -15,9 +15,11 @@ const navItems = [
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  /** Phone layout: fills the drawer it sits in, and its button closes the drawer. */
+  inDrawer?: boolean;
 }
 
-export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export default function Sidebar({ collapsed, onToggle, inDrawer = false }: SidebarProps) {
   const { user, authMode, logout } = useAuth();
   const { mode, toggleMode } = useTheme();
   const [showMenu, setShowMenu] = useState(false);
@@ -35,9 +37,13 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
   return (
     <aside
-      className={`bg-tc-page border-r border-tc-default flex flex-col flex-shrink-0 transition-[width] duration-200 ${
-        collapsed ? "w-14" : "w-56"
-      }`}
+      className={
+        inDrawer
+          ? "flex flex-col flex-1 min-h-0"
+          : `bg-tc-page border-r border-tc-default flex flex-col flex-shrink-0 transition-[width] duration-200 ${
+              collapsed ? "w-14" : "w-56"
+            }`
+      }
     >
       <div className="p-4 border-b border-tc-default flex items-center justify-between min-h-[57px]">
         {!collapsed && (
@@ -48,9 +54,9 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         <button
           onClick={onToggle}
           className={`p-1 text-tc-muted hover:text-tc-secondary rounded transition-colors ${collapsed ? "mx-auto" : ""}`}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={inDrawer ? "Close menu" : collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          {inDrawer ? <X size={20} /> : collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
         </button>
       </div>
       <nav className="flex-1 p-2 space-y-1">
@@ -62,7 +68,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
             title={collapsed ? label : undefined}
             className={({ isActive }) =>
               `flex items-center gap-3 rounded-lg text-sm font-medium transition-colors ${
-                collapsed ? "justify-center px-2 py-2" : "px-3 py-2"
+                collapsed ? "justify-center px-2 py-2" : inDrawer ? "px-3 py-3" : "px-3 py-2"
               } ${
                 isActive
                   ? "bg-tc-overlay text-tc-primary"

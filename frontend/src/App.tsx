@@ -1,7 +1,9 @@
-import { Navigate, Outlet, useMatch } from "react-router-dom";
+import { Navigate, Outlet, useLocation, useMatch } from "react-router-dom";
 import SingleSignOnGate from "@/components/SingleSignOnGate";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Bot, MessageSquare } from "lucide-react";
+import { Bot, ListTree, Menu, MessageSquare } from "lucide-react";
+import MobileDrawer from "./components/MobileDrawer";
+import { useIsMobile } from "./hooks/useIsMobile";
 import Sidebar from "./components/Sidebar";
 import WorkNav from "./components/WorkNav";
 import AIChatPanel from "./components/AIChatPanel";
@@ -54,6 +56,13 @@ export default function App() {
   const userToggledRef = useRef(false);
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
   const [pendingComment, setPendingComment] = useState<PendingComment | null>(null);
+  // Phone layout: the sidebar and the work's contents are drawers, opened from
+  // the top bar, and the AI and comment panels cover the screen.
+  const isMobile = useIsMobile();
+  const [drawer, setDrawer] = useState<"menu" | "work" | null>(null);
+  const location = useLocation();
+  const closeDrawer = useCallback(() => setDrawer(null), []);
+  useEffect(() => setDrawer(null), [location.pathname, isMobile]);
 
   const showAI = rightPanel === "ai";
   const showComments = rightPanel === "comments" && !!chapterId;
@@ -124,20 +133,45 @@ export default function App() {
     return <Navigate to="/login" replace />;
   }
 
+  const panelClass = isMobile ? "fixed inset-0 z-50" : "w-96 flex-shrink-0 h-full";
+
   return (
-    <div className="flex h-screen overflow-hidden bg-tc-base">
-      <Sidebar collapsed={sidebarCollapsed} onToggle={handleSidebarToggle} />
-      {workId && (
+    <div className="flex h-dvh overflow-hidden bg-tc-base">
+      {!isMobile && <Sidebar collapsed={sidebarCollapsed} onToggle={handleSidebarToggle} />}
+      {!isMobile && workId && (
         <aside className={`bg-tc-page border-r border-tc-default flex flex-col overflow-hidden flex-shrink-0 transition-[width] duration-200 ${workNavCollapsed ? "w-10" : "w-56"}`}>
           <WorkNav workId={workId} readingMode={isReadingMode} collapsed={workNavCollapsed} onToggle={() => setWorkNavCollapsed(c => !c)} />
         </aside>
       )}
-      <main className="flex-1 overflow-y-auto min-w-0">
-        <Outlet context={outletContext} />
-      </main>
+      <div className="flex-1 flex flex-col min-w-0">
+        {isMobile && (
+          <header className="flex items-center gap-1 h-12 px-1 border-b border-tc-default bg-tc-page flex-shrink-0">
+            <button
+              onClick={() => setDrawer("menu")}
+              className="p-2.5 text-tc-tertiary hover:text-tc-secondary rounded-lg"
+              aria-label="Menu"
+            >
+              <Menu size={20} />
+            </button>
+            <span className="flex-1 text-base font-bold tracking-tight text-tc-primary">Typecast</span>
+            {workId && (
+              <button
+                onClick={() => setDrawer("work")}
+                className="p-2.5 text-tc-tertiary hover:text-tc-secondary rounded-lg"
+                aria-label="Chapters and codex"
+              >
+                <ListTree size={20} />
+              </button>
+            )}
+          </header>
+        )}
+        <main className="flex-1 overflow-y-auto min-w-0">
+          <Outlet context={outletContext} />
+        </main>
+      </div>
 
       {showComments && chapterId && (
-        <aside className="w-96 flex-shrink-0 h-full">
+        <aside className={panelClass}>
           <CommentsSidebar
             chapterId={chapterId}
             activeCommentId={activeCommentId}
@@ -154,7 +188,7 @@ export default function App() {
       )}
 
       {showAI && (
-        <aside className="w-96 flex-shrink-0 h-full">
+        <aside className={panelClass}>
           <AIChatPanel
             workId={workId}
             chapterId={chapterId}
@@ -164,26 +198,40 @@ export default function App() {
         </aside>
       )}
 
-      <div className="fixed bottom-6 right-6 flex items-center gap-2 z-50">
-        {!showComments && chapterId && (
-          <button
-            onClick={() => setRightPanel("comments")}
-            className="p-3 bg-tc-secondary hover:bg-tc-secondary-hover rounded-full shadow-lg shadow-tc-accent transition-colors"
-            title="Comments"
-          >
-            <MessageSquare size={20} />
-          </button>
-        )}
-        {!showAI && (
-          <button
-            onClick={() => setRightPanel("ai")}
-            className="p-3 bg-tc-accent hover:bg-tc-accent-hover rounded-full shadow-tc-accent transition-colors"
-            title="AI Assistant"
-          >
-            <Bot size={20} />
-          </button>
-        )}
-      </div>
+      {isMobile && drawer === "menu" && (
+        <MobileDrawer label="Menu" onClose={closeDrawer}>
+          <Sidebar collapsed={false} onToggle={closeDrawer} inDrawer />
+        </MobileDrawer>
+      )}
+      {isMobile && drawer === "work" && workId && (
+        <MobileDrawer label="Chapters and codex" onClose={closeDrawer}>
+          <WorkNav workId={workId} readingMode={isReadingMode} collapsed={false} onToggle={closeDrawer} />
+        </MobileDrawer>
+      )}
+
+      {/* A full-screen panel on a phone has its own close button. */}
+      {!(isMobile && rightPanel) && (
+        <div className="fixed bottom-6 right-6 flex items-center gap-2 z-50">
+          {!showComments && chapterId && (
+            <button
+              onClick={() => setRightPanel("comments")}
+              className="p-3 bg-tc-secondary hover:bg-tc-secondary-hover rounded-full shadow-lg shadow-tc-accent transition-colors"
+              title="Comments"
+            >
+              <MessageSquare size={20} />
+            </button>
+          )}
+          {!showAI && (
+            <button
+              onClick={() => setRightPanel("ai")}
+              className="p-3 bg-tc-accent hover:bg-tc-accent-hover rounded-full shadow-tc-accent transition-colors"
+              title="AI Assistant"
+            >
+              <Bot size={20} />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
