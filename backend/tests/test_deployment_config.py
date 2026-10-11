@@ -467,3 +467,68 @@ def test_the_lock_covers_every_declared_dependency():
     assert missing == [], (
         f"declared but not locked: {missing}. Run backend/scripts/lock-deps.sh"
     )
+
+
+# --- export fonts --------------------------------------------------------------------
+
+FONTS_DIR = REPO_ROOT / "backend" / "fonts"
+GENERIC_FAMILIES = {"serif", "sans-serif", "monospace", "cursive", "fantasy", "sans serif"}
+
+
+def _installed_and_aliased_families() -> set[str]:
+    manifest = (FONTS_DIR / "google-fonts.sha256").read_text()
+    installed = set(re.findall(r"^# family: (.+)$", manifest, re.M))
+    aliases = (FONTS_DIR / "60-typecast-aliases.conf").read_text()
+    aliased = set(re.findall(r'<alias binding="same"><family>([^<]+)</family>', aliases))
+    return {f.lower() for f in installed | aliased}
+
+
+def _first_family(css_value: str) -> str:
+    return css_value.split(",")[0].strip().strip("'\"")
+
+
+def test_every_font_the_picker_offers_exists_in_the_image():
+    """A family the image lacks made WeasyPrint fall back to whatever it found: a PDF
+    exported from Azure came out in an uploaded display font instead of Georgia."""
+    picker = (REPO_ROOT / "frontend" / "src" / "components" / "FontSelect.tsx").read_text()
+    offered = re.findall(r'value: "([^"]+)"', picker)
+    assert len(offered) >= 10, "the picker's font list moved; update this test"
+    available = _installed_and_aliased_families()
+    missing = sorted(
+        f for f in {_first_family(v) for v in offered}
+        if f.lower() not in available | GENERIC_FAMILIES
+    )
+    assert missing == [], f"offered by the font picker but not installed or aliased: {missing}"
+
+
+def test_every_built_in_profile_font_exists_in_the_image():
+    engine_src = (REPO_ROOT / "backend" / "app" / "db" / "engine.py").read_text()
+    used = re.findall(r'"(?:chapter_)?font_family": "([^"]+)"', engine_src)
+    assert used, "built-in profiles moved; update this test"
+    available = _installed_and_aliased_families()
+    missing = sorted(
+        f for f in {_first_family(v) for v in used} if f.lower() not in available | GENERIC_FAMILIES
+    )
+    assert missing == [], f"built-in profiles use fonts the image lacks: {missing}"
+
+
+@pytest.mark.parametrize("dockerfile", ["Dockerfile", "backend/Dockerfile"])
+def test_both_images_install_the_export_fonts(dockerfile):
+    text = (REPO_ROOT / dockerfile).read_text()
+    assert "install-fonts.sh" in text, f"{dockerfile} does not install the export fonts"
+    for package in ("fonts-liberation2", "fonts-urw-base35", "fonts-dejavu-core", "fontconfig"):
+        assert package in text, f"{dockerfile} lacks {package}, which the aliases rely on"
+
+
+def test_every_downloaded_font_is_pinned_and_licensed():
+    manifest = (FONTS_DIR / "google-fonts.sha256").read_text()
+    source = re.search(r"^# source: (\S+)$", manifest, re.M).group(1)
+    pinned = r"https://raw\.githubusercontent\.com/google/fonts/[0-9a-f]{40}/ofl/"
+    assert re.fullmatch(pinned, source), "fonts must come from one pinned commit, not a branch"
+    entries = [
+        line.split(None, 1) for line in manifest.splitlines() if line and not line.startswith("#")
+    ]
+    assert all(re.fullmatch(r"[0-9a-f]{64}", digest) for digest, _ in entries)
+    families = {path.split("/")[0] for _, path in entries if path.endswith(".ttf")}
+    licensed = {path.split("/")[0] for _, path in entries if path.endswith("/OFL.txt")}
+    assert families == licensed, f"fonts redistributed without their licence: {families - licensed}"

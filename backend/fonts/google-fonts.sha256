@@ -1,0 +1,55 @@
+# Fonts for server-side export (WeasyPrint), installed by backend/scripts/install-fonts.sh.
+#
+# The font picker offers families a Linux image does not have, and a missing
+# family made WeasyPrint fall back to whatever it found, sometimes an uploaded
+# display font. Families Debian packages are installed with apt (see the
+# Dockerfiles); these come from Google Fonts, pinned to one commit and checked
+# against their SHA-256, so a build gets exactly these bytes. All are under the
+# SIL Open Font License, whose text is installed beside each family.
+#
+# source: https://raw.githubusercontent.com/google/fonts/bd8f81ddb5c74d5c8897b36ad88b440266245103/ofl/
+#
+# family: EB Garamond
+# family: Gelasio
+# family: Libre Baskerville
+# family: Libre Caslon Text
+# family: Merriweather
+# family: Lora
+# family: Crimson Text
+# family: Source Serif 4
+# family: Literata
+# family: Noto Serif
+4daecea457258c9ebeb8bc99ed3fd24353618bfad3ea4b93fa0b5d0468fc04e4  gelasio/Gelasio[wght].ttf
+52559e845a4d33514e5f93bb9ae7dbeae1894a53f2c565a15f18af40cd337c09  gelasio/Gelasio-Italic[wght].ttf
+05a95421961341c5b2556285e8415df9db27dab4f4abe22b446b3c6a8b916c5d  librebaskerville/LibreBaskerville[wght].ttf
+223959683dc73ec4437bd61fabaa4b3f22209e22855ffd3aee36ba61a5116e97  librebaskerville/LibreBaskerville-Italic[wght].ttf
+c11809dbfd5445886293d89b32bfc2584075c80e77750cf1c284113e36b8b3f4  librecaslontext/LibreCaslonText[wght].ttf
+60ca1a3aade61c8c381800ca85b9b2f0fb341d89ebe065e12cd6ec2ee2e53e54  librecaslontext/LibreCaslonText-Italic[wght].ttf
+d0ed0e359e396af7ad05e73dffd11a3a4c326ea0d0283c56bd9361cb2cc86a96  merriweather/Merriweather[opsz,wdth,wght].ttf
+f68a8f4989258679e4fbaf50aa42400132b5373c2d9d2514ba82ef6e85947a0b  merriweather/Merriweather-Italic[opsz,wdth,wght].ttf
+822a6621ccbe8d97d20ac88c1c41f5615c9c2c202eaa75f272cd452aac6475a7  lora/Lora[wght].ttf
+22d8d8854b53807aa664ca34f2031a9ed57a1d0dea296b8b96cdd3aad937a2b3  lora/Lora-Italic[wght].ttf
+48e6c5d5ad1d01599d374ecb817e15890d1feb3b8a3a88e527d44c90389e1f06  crimsontext/CrimsonText-Regular.ttf
+4ed1699ac7c64e8b3d33f6bb8323c3d7206b0d7bacb9ee2d65c697e6014d29de  crimsontext/CrimsonText-Italic.ttf
+802e84000740fec2a9fbe0ae09b6b6811bd86a78a0173b15d44450a1530e9410  crimsontext/CrimsonText-SemiBold.ttf
+8f4a0db2d181ba4493a4ad53042edc3b57ab50fedd8fa32c7b2ad57173208543  crimsontext/CrimsonText-SemiBoldItalic.ttf
+a3a0765fc5e8d0b49b540a23aefe0184887dd79f06a0bdf4db7035cea6befa93  crimsontext/CrimsonText-Bold.ttf
+467013e913e46304760461c46661c994b2aa1769e3fbd31371026300315181b4  crimsontext/CrimsonText-BoldItalic.ttf
+97b2d4da6e3cb494b5a1e66ae176914d852ccabef49e0c02c0df25f3e39aca0b  sourceserif4/SourceSerif4[opsz,wght].ttf
+15fbc7e4679489a501998c3669272637a6646388ef7e4bd77eebb5bf967a1f42  sourceserif4/SourceSerif4-Italic[opsz,wght].ttf
+b41138c9373112f32abb589cc22e8674b06ed4048b0c513be922bdd26f274440  literata/Literata[opsz,wght].ttf
+d483dfaeba9cbf4ce71d32a52ee65df82f7e35b15fff8d1011cdb242d1fcd465  literata/Literata-Italic[opsz,wght].ttf
+4d8e6761424656867019081a1a01336f3cb086982682698714054fc33f782713  notoserif/NotoSerif[wdth,wght].ttf
+e87acbc6c0efd0d9a20d6a8cbbda2b266c14be3a3a6f5af8ec9d7b2460570ad1  notoserif/NotoSerif-Italic[wdth,wght].ttf
+ef9512f92f6d579e5dc75af59a5a4b1b8b47d2eda89e00b954d44520e5369027  ebgaramond/EBGaramond[wght].ttf
+bba2c4499c93c9612b90b9825d32b07da52fce2fe57562a1eb6b833553f93c4e  ebgaramond/EBGaramond-Italic[wght].ttf
+b393cb01867c919b44381512120dc3e4c954c7b47e2035c405f3a324799a4d29  gelasio/OFL.txt
+3624eddd4c8f8a908130a417ae7cd089c9da69899c4e0ca1a5217d0a6fae16fd  librebaskerville/OFL.txt
+a294245c822c5aa9fd9a9f3189418e99415428be5fecadf797793d5d8f6a3ad3  librecaslontext/OFL.txt
+715bd349bfa6116f99e351e1548321dcfa25b91df65502d22ca8d624557697d2  merriweather/OFL.txt
+1d9a970809ac804b582a6ce7f0ebc4e7fefcbfd7ff6299cad35ee656a21be716  lora/OFL.txt
+50fd67cddc097377a5c871e8452b778bc5aedfa3480a705cb27c5e3a078218df  crimsontext/OFL.txt
+5f94c3fd3a23131a417ab5a0c8452de57e70c3cfb9f604d88241f7065ebf9fd9  sourceserif4/OFL.txt
+8742963604cd89dc81437811a850018fc03b2bfad686d7422c8235967c87614e  literata/OFL.txt
+cee9892f9f0cc8fe882c9e9537ee6a89621d86ee7ceaf70b02e2b2b1c25c061a  notoserif/OFL.txt
+0985066662eb755ed3683ae5482a81a9195b49ce3f7e165cc2388b3dbece7dd7  ebgaramond/OFL.txt

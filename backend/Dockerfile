@@ -25,12 +25,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi-dev \
     libglib2.0-0 \
     shared-mime-info \
-    fonts-liberation \
+    fonts-liberation2 \
+    fonts-urw-base35 \
+    fonts-dejavu-core \
+    fonts-dejavu-extra \
+    fontconfig \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed Python packages from builder stage
 COPY --from=builder /install /usr/local
+
+# Export fonts: every family the font picker offers, or a metric-compatible
+# substitute, so a PDF exported here matches one exported on a desktop.
+# Before this, a missing family fell back to whatever WeasyPrint found.
+# Ahead of the application code, so code changes do not redownload them.
+COPY fonts /tmp/font-setup/fonts
+COPY scripts/install-fonts.sh /tmp/font-setup/scripts/install-fonts.sh
+RUN sh /tmp/font-setup/scripts/install-fonts.sh && rm -rf /tmp/font-setup
 
 # Copy application code
 COPY . .
