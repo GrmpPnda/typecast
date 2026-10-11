@@ -210,7 +210,8 @@ export default function App() {
       )}
 
       {/* A full-screen panel on a phone has its own close button. */}
-      {!(isMobile && rightPanel) && (
+      {/* Hidden in the reader on a phone, where it covered the page controls. */}
+      {!(isMobile && (rightPanel || isReadingMode)) && (
         <div className="fixed bottom-6 right-6 flex items-center gap-2 z-50">
           {!showComments && chapterId && (
             <button

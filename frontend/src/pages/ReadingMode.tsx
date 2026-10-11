@@ -28,6 +28,80 @@ import Markdown from "react-markdown";
 import { marked } from "marked";
 import { Profile, TitlePageConfig } from "@/types";
 import { useFontFaceStyles } from "@/components/FontSelect";
+import { useIsMobile } from "@/hooks/useIsMobile";
+
+/**
+ * Page turns by swiping, for touch screens: a mostly horizontal swipe of at
+ * least 50px. Vertical drags are left alone so nothing fights scrolling.
+ */
+function useSwipe(onNext: () => void, onPrev: () => void) {
+  const start = useRef<{ x: number; y: number } | null>(null);
+  return {
+    onTouchStart: (e: React.TouchEvent) => {
+      const t = e.touches[0];
+      start.current = { x: t.clientX, y: t.clientY };
+    },
+    onTouchEnd: (e: React.TouchEvent) => {
+      const from = start.current;
+      start.current = null;
+      if (!from) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - from.x;
+      const dy = t.clientY - from.y;
+      if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      if (dx < 0) onNext();
+      else onPrev();
+    },
+  };
+}
+
+/**
+ * Shows a fixed-size page, scaled down to fit the space it is given and never
+ * up. A transform changes only how it is drawn, not its layout size, so the
+ * paginator inside measures exactly what the PDF export lays out.
+ */
+function FitPage({
+  widthPx,
+  heightPx,
+  children,
+}: {
+  widthPx: number;
+  heightPx: number;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const update = () => {
+      // Leave room around the page so its shadow and edges stay visible.
+      const pad = window.matchMedia("(max-width: 767px)").matches ? 16 : 48;
+      const fit = Math.min(
+        (node.clientWidth - pad) / widthPx,
+        (node.clientHeight - pad) / heightPx,
+        1,
+      );
+      setScale(fit > 0 ? fit : 1);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [widthPx, heightPx]);
+  return (
+    <div ref={ref} className="flex-1 min-h-0 overflow-hidden flex items-center justify-center">
+      <div style={{ width: widthPx * scale, height: heightPx * scale }}>
+        <div
+          className="rounded shadow-2xl overflow-hidden"
+          style={{ width: widthPx, height: heightPx, transform: `scale(${scale})`, transformOrigin: "top left" }}
+        >
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 
 
@@ -559,6 +633,7 @@ function EpubReader({
     if (isFirstPage) { onPrevChapter?.(); }
     else { setPage((p) => p - 1); }
   }, [isFirstPage, onPrevChapter]);
+  const swipe = useSwipe(goNext, goPrev);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -584,8 +659,8 @@ function EpubReader({
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-hidden px-10 py-8 max-w-[50em] mx-auto w-full">
+    <div className="flex flex-col h-full" {...swipe}>
+      <div className="flex-1 overflow-hidden px-5 py-5 md:px-10 md:py-8 max-w-[50em] mx-auto w-full">
         <div ref={outerRef} className="h-full">
           <ColumnPaginator
             height={height}
@@ -697,6 +772,7 @@ function PdfReader({
     if (isFirstPage) { onPrevChapter?.(); }
     else { setPage((p) => p - 1); }
   }, [isFirstPage, onPrevChapter]);
+  const swipe = useSwipe(goNext, goPrev);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -761,9 +837,8 @@ function PdfReader({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-hidden flex justify-center py-6">
-        <div className="rounded shadow-2xl overflow-hidden">
+    <div className="flex flex-col h-full" {...swipe}>
+      <FitPage widthPx={(profile.page_width ?? 6) * 96} heightPx={(profile.page_height ?? 9) * 96}>
           <PdfPageShell
             profile={profile}
             isRecto={isRectoPage}
@@ -784,8 +859,7 @@ function PdfReader({
               </ColumnPaginator>
             </div>
           </PdfPageShell>
-        </div>
-      </div>
+      </FitPage>
 
       <footer className="flex items-center justify-between px-6 py-2 bg-gray-900 border-t border-gray-800 shrink-0">
         <button onClick={goPrev} disabled={isFirstPage && !onPrevChapter}
@@ -1467,7 +1541,10 @@ export default function ReadingMode() {
     [profiles, selectedProfileId]
   );
 
-  const [twoPage, setTwoPage] = useState(false);
+  const [twoPageChoice, setTwoPage] = useState(false);
+  // Two pages side by side cannot fit a phone, so it is not offered there.
+  const isMobile = useIsMobile();
+  const twoPage = twoPageChoice && !isMobile;
   const isPdf = profile?.format === "pdf";
   const currentChapter = content[chapterIndex];
   const hasNext = chapterIndex < content.length - 1;
@@ -1520,17 +1597,19 @@ export default function ReadingMode() {
 
   return (
     <div className="flex flex-col h-full bg-gray-950">
-      <header className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-800 shrink-0">
-        <div className="flex items-center gap-4">
+      <header className="flex items-center justify-between gap-2 px-3 md:px-4 py-2 bg-gray-900 border-b border-gray-800 shrink-0">
+        <div className="flex items-center gap-2 md:gap-4 min-w-0">
           <Link
             to={chapterParam ? `/work/${id}/chapter/${chapterParam}` : `/work/${id}`}
-            className="text-gray-400 hover:text-gray-200 transition-colors"
+            className="p-1 -m-1 text-gray-400 hover:text-gray-200 transition-colors shrink-0"
+            aria-label="Back"
           >
             <ArrowLeft size={18} />
           </Link>
-          <span className="text-sm text-gray-300 font-medium">{work.title}</span>
+          {/* The work's name is already in the app's top bar on a phone. */}
+          <span className="hidden md:inline text-sm text-gray-300 font-medium">{work.title}</span>
           {content.length > 0 && currentChapter && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <button
                 onClick={() => setChapterIndex((i) => Math.max(i - 1, 0))}
                 disabled={chapterIndex === 0}
@@ -1538,7 +1617,7 @@ export default function ReadingMode() {
               >
                 <ChevronLeft size={14} />
               </button>
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-gray-500 truncate">
                 {currentChapter.isCover
                   ? "Cover"
                   : currentChapter.chapter.title
@@ -1556,8 +1635,8 @@ export default function ReadingMode() {
           )}
         </div>
 
-        <div className="flex items-center gap-3">
-          {isPdf && (
+        <div className="flex items-center gap-2 md:gap-3 shrink-0">
+          {isPdf && !isMobile && (
             <button
               onClick={() => setTwoPage(!twoPage)}
               className={`p-1.5 rounded transition-colors ${
@@ -1568,11 +1647,12 @@ export default function ReadingMode() {
               {twoPage ? <FileText size={14} /> : <Columns2 size={14} />}
             </button>
           )}
-          <BookOpen size={14} className="text-gray-500" />
+          <BookOpen size={14} className="hidden md:block text-gray-500" />
           <select
             value={selectedProfileId ?? ""}
             onChange={(e) => setSelectedProfileId(e.target.value || null)}
-            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:border-indigo-500 focus:outline-none"
+            aria-label="Reading profile"
+            className="max-w-[9.5rem] md:max-w-none bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:border-indigo-500 focus:outline-none"
           >
             <option value="">Default (ePub)</option>
             {profiles.map((p) => (
