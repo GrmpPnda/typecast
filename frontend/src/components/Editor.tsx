@@ -67,6 +67,13 @@ interface EditorProps {
   checkpoint?: string | null;
 }
 
+// Shared empty defaults. A literal `= []` in the parameter list is a new array on
+// every render, and the comments effect below dispatches a transaction whenever its
+// inputs change; each transaction re-renders the editor, so with no comments passed
+// (the full-screen writing editor) it looped until React gave up.
+const NO_WORDS: string[] = [];
+const NO_COMMENTS: NonNullable<EditorProps["comments"]> = [];
+
 export default function Editor({
   content,
   onChange,
@@ -75,8 +82,8 @@ export default function Editor({
   workId,
   onImageUploaded,
   spellcheckEnabled = true,
-  customDictionary = [],
-  comments: commentHighlights = [],
+  customDictionary = NO_WORDS,
+  comments: commentHighlights = NO_COMMENTS,
   activeCommentId = null,
   onCommentClick,
   checkpoint = null,
