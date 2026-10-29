@@ -137,7 +137,7 @@ export default function Editor({
     editorProps: {
       attributes: {
         class:
-          "prose prose-invert prose-sm max-w-none min-h-[60vh] px-6 py-4 focus:outline-none",
+          "prose prose-invert prose-sm max-w-none min-h-[60vh] px-4 py-3 md:px-6 md:py-4 focus:outline-none",
         spellcheck: "false",
       },
       handleDrop: (_view, event) => {
@@ -287,9 +287,12 @@ export default function Editor({
   const spellcheckActive = editor.storage.spellcheck?.enabled ?? true;
 
   return (
-    <div className="border border-tc-subtle rounded-lg overflow-hidden bg-tc-overlay">
-      <div className="flex items-center justify-between px-2 py-1 border-b border-tc-subtle bg-tc-overlay">
-        <div className="flex items-center gap-0.5 flex-wrap">
+    // overflow-clip, not overflow-hidden: hidden would make this box the
+    // toolbar's scroll container and stop it sticking while a long scene scrolls.
+    <div className="border border-tc-subtle rounded-lg overflow-clip bg-tc-overlay">
+      <div className="sticky top-0 z-10 flex items-center justify-between gap-1 px-2 py-1 border-b border-tc-subtle bg-tc-overlay">
+        {/* One row on a phone, scrolling sideways, rather than three. */}
+        <div className="flex items-center gap-0.5 flex-wrap max-md:flex-nowrap max-md:overflow-x-auto min-w-0 [&>*]:shrink-0">
           {!rawMode && (
             <>
               <ToolbarButton

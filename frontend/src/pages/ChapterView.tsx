@@ -80,13 +80,13 @@ function hasSceneBreak(content: string): boolean {
 function InsertSceneButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
   return (
     <div className="group relative flex items-center justify-center py-1">
-      <div className="absolute inset-x-0 top-1/2 h-px bg-tc-hover/0 group-hover:bg-tc-hover transition-colors" />
+      <div className="absolute inset-x-0 top-1/2 h-px bg-tc-hover/0 group-hover:bg-tc-hover [@media(hover:none)]:bg-tc-hover/60 transition-colors" />
       <button
         onClick={onClick}
         disabled={disabled}
         className="relative z-10 flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium
           text-tc-muted hover:text-tc-secondary bg-tc-base border border-tc-subtle/0 hover:border-tc-subtle
-          opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
+          opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 [@media(hover:none)]:p-2 transition-all disabled:opacity-50"
         title="Insert scene here"
       >
         <Plus size={12} />
@@ -423,7 +423,7 @@ function SceneCard({
     <div
       id={`scene-${scene.id}`}
       data-scene-id={scene.id}
-      className="scene-block relative p-5 bg-tc-overlay/50 rounded-lg border border-tc-subtle/50 group"
+      className="scene-block relative p-3 md:p-5 bg-tc-overlay/50 rounded-lg border border-tc-subtle/50 group"
     >
       {showSplitBanner && (
         <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-tc-secondary-subtle border border-tc-secondary/30 text-xs">
@@ -477,14 +477,14 @@ function SceneCard({
             <>
               <button
                 onClick={handleEdit}
-                className="p-1.5 text-tc-muted hover:text-tc-secondary opacity-0 group-hover:opacity-100 rounded transition-all"
+                className="p-1.5 text-tc-muted hover:text-tc-secondary opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 [@media(hover:none)]:p-2 rounded transition-all"
                 title="Edit inline"
               >
                 <PenLine size={14} />
               </button>
               <button
                 onClick={startCommentFromSelection}
-                className="p-1.5 text-tc-muted hover:text-tc-secondary opacity-0 group-hover:opacity-100 rounded transition-all"
+                className="p-1.5 text-tc-muted hover:text-tc-secondary opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 [@media(hover:none)]:p-2 rounded transition-all"
                 title="Add comment on selected text"
               >
                 <MessageSquareQuote size={14} />
@@ -493,7 +493,7 @@ function SceneCard({
                 onClick={() => {
                   navigator.clipboard.writeText(scene.content || "");
                 }}
-                className="p-1.5 text-tc-muted hover:text-tc-secondary opacity-0 group-hover:opacity-100 rounded transition-all"
+                className="p-1.5 text-tc-muted hover:text-tc-secondary opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 [@media(hover:none)]:p-2 rounded transition-all"
                 title="Copy markdown"
               >
                 <ClipboardCopy size={14} />
@@ -563,7 +563,7 @@ function SceneCard({
                   className={`p-1.5 rounded transition-all ${
                     narrating
                       ? "text-tc-accent hover:text-tc-accent"
-                      : "text-tc-muted hover:text-tc-secondary opacity-0 group-hover:opacity-100"
+                      : "text-tc-muted hover:text-tc-secondary opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 [@media(hover:none)]:p-2"
                   }`}
                   title={narrating === "loading" ? "Generating narration..." : narrating ? "Stop narration" : "Listen to scene"}
                 >
@@ -580,7 +580,7 @@ function SceneCard({
                 <div className="relative" ref={menuRef}>
                   <button
                     onClick={() => setShowMenu(!showMenu)}
-                    className="p-1.5 text-tc-muted hover:text-tc-secondary opacity-0 group-hover:opacity-100 rounded transition-all"
+                    className="p-1.5 text-tc-muted hover:text-tc-secondary opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 [@media(hover:none)]:p-2 rounded transition-all"
                   >
                     <MoreHorizontal size={14} />
                   </button>
@@ -1038,7 +1038,7 @@ export default function ChapterView() {
   if (!chapter) return null;
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-4 md:p-8 max-w-4xl mx-auto">
       <Link
         to={`/work/${id}`}
         className="inline-flex items-center gap-2 text-tc-tertiary hover:text-tc-secondary mb-6 text-sm"
@@ -1137,7 +1137,7 @@ export default function ChapterView() {
       )}
 
       {isTitlePage && work ? (
-        <div className="bg-tc-overlay/50 border border-tc-subtle/50 rounded-lg p-6">
+        <div className="bg-tc-overlay/50 border border-tc-subtle/50 rounded-lg p-4 md:p-6">
           <TitlePageEditor
             work={work}
             config={work.title_page_config ?? null}
@@ -1149,7 +1149,7 @@ export default function ChapterView() {
         </div>
       ) : (
         <>
-          <div className="grid gap-0">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-0">
             {scenes.map((scene, index) => (
               <div key={scene.id}>
                 {!isMatter && index === 0 && scenes.length > 1 && (

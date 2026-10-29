@@ -154,6 +154,25 @@ export default function App() {
               <Menu size={20} />
             </button>
             <span className="flex-1 text-base font-bold tracking-tight text-tc-primary">Typecast</span>
+            {/* In the bar rather than floating, where they covered the text being read or edited. */}
+            {chapterId && (
+              <button
+                onClick={() => setRightPanel("comments")}
+                className="p-2.5 text-tc-tertiary hover:text-tc-secondary rounded-lg"
+                aria-label="Comments"
+              >
+                <MessageSquare size={20} />
+              </button>
+            )}
+            {!isReadingMode && (
+              <button
+                onClick={() => setRightPanel("ai")}
+                className="p-2.5 text-tc-tertiary hover:text-tc-secondary rounded-lg"
+                aria-label="AI Assistant"
+              >
+                <Bot size={20} />
+              </button>
+            )}
             {workId && (
               <button
                 onClick={() => setDrawer("work")}
@@ -210,8 +229,8 @@ export default function App() {
       )}
 
       {/* A full-screen panel on a phone has its own close button. */}
-      {/* Hidden in the reader on a phone, where it covered the page controls. */}
-      {!(isMobile && (rightPanel || isReadingMode)) && (
+      {/* Desktop only: on a phone these live in the top bar. */}
+      {!isMobile && (
         <div className="fixed bottom-6 right-6 flex items-center gap-2 z-50">
           {!showComments && chapterId && (
             <button
