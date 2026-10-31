@@ -73,6 +73,51 @@ const MATTER_TITLES = new Set([
   "also by", "colophon", "copyright", "half title", "title page",
 ]);
 
+// --- commenting on a selection ---------------------------------------------------
+
+/** Text selected within one scene, and which scene. */
+interface SceneSelection {
+  sceneId: string;
+  text: string;
+}
+
+/**
+ * The current selection, if it lies within a single scene (preview or editor).
+ * Scene blocks carry data-scene-id; a selection spanning two scenes is ignored,
+ * since a comment anchors to one.
+ */
+function selectionInScene(): SceneSelection | null {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed) return null;
+  const text = sel.toString().trim();
+  if (!text) return null;
+  const sceneOf = (node: Node | null) => {
+    const el = node instanceof Element ? node : node?.parentElement;
+    return el?.closest<HTMLElement>("[data-scene-id]") ?? null;
+  };
+  const block = sceneOf(sel.anchorNode);
+  if (!block || sceneOf(sel.focusNode) !== block) return null;
+  return { sceneId: block.dataset.sceneId!, text };
+}
+
+/** Where a selected passage sits in the scene's markdown, for the comment anchor. */
+function anchorRange(content: string, text: string): [number, number] {
+  const from = content.indexOf(text);
+  return from >= 0 ? [from, from + text.length] : [0, 0];
+}
+
+/** False on touch screens, which have no hover and no right-click. */
+function useCanHover(): boolean {
+  const [canHover, setCanHover] = useState(() => window.matchMedia("(hover: hover)").matches);
+  useEffect(() => {
+    const media = window.matchMedia("(hover: hover)");
+    const update = () => setCanHover(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return canHover;
+}
+
 function hasSceneBreak(content: string): boolean {
   return /\n---\n|\n\*\*\*\n|\n___\n|^---$|^---\n|\n---$/m.test(content);
 }
@@ -112,6 +157,7 @@ function SceneCard({
   activeCommentId,
   onCommentClick,
   onStartComment,
+  recentSelection,
   pollyEnabled,
 }: {
   scene: Scene;
@@ -129,6 +175,8 @@ function SceneCard({
   activeCommentId: string | null;
   onCommentClick: (commentId: string) => void;
   onStartComment: (sceneId: string, anchorText: string, anchorFrom: number, anchorTo: number) => void;
+  /** The last selection made in any scene, kept after a tap collapses it. */
+  recentSelection: () => SceneSelection | null;
   pollyEnabled?: boolean;
 }) {
   const queryClient = useQueryClient();
@@ -358,17 +406,14 @@ function SceneCard({
   }, [activeCommentId]);
 
   const startCommentFromSelection = () => {
-    const sel = window.getSelection();
-    const text = sel?.toString().trim() || "";
+    // On a phone, tapping this button collapses the selection before the click
+    // arrives, so fall back to the one remembered as it was made.
+    const live = window.getSelection()?.toString().trim() || "";
+    const recent = recentSelection();
+    const text = live || (recent?.sceneId === scene.id ? recent.text : "");
     if (!text) return;
-    const content = scene.content || "";
-    const from = content.indexOf(text);
-    onStartComment(
-      scene.id,
-      text,
-      from >= 0 ? from : 0,
-      from >= 0 ? from + text.length : 0,
-    );
+    const [from, to] = anchorRange(scene.content || "", text);
+    onStartComment(scene.id, text, from, to);
     setContextMenu(null);
   };
 
@@ -483,6 +528,8 @@ function SceneCard({
                 <PenLine size={14} />
               </button>
               <button
+                // Keep the selection: by default pressing a button clears it.
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={startCommentFromSelection}
                 className="p-1.5 text-tc-muted hover:text-tc-secondary opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 [@media(hover:none)]:p-2 rounded transition-all"
                 title="Add comment on selected text"
@@ -1035,10 +1082,61 @@ export default function ChapterView() {
     ? (chapter.title ?? "").toLowerCase().trim() === "title page"
     : false;
 
+  // Selections in scenes, remembered as they are made. On a touch screen there is
+  // no right-click and the scene's comment button is usually off screen, so a
+  // floating button appears while text is selected.
+  const recentSelectionRef = useRef<SceneSelection | null>(null);
+  const getRecentSelection = useCallback(() => recentSelectionRef.current, []);
+  const [touchSelection, setTouchSelection] = useState<SceneSelection | null>(null);
+  const canHover = useCanHover();
+  useEffect(() => {
+    let hideTimer: ReturnType<typeof setTimeout> | undefined;
+    const onSelectionChange = () => {
+      const selected = selectionInScene();
+      clearTimeout(hideTimer);
+      if (selected) {
+        recentSelectionRef.current = selected;
+        setTouchSelection(selected);
+      } else {
+        // Linger briefly: the tap on the button itself collapses the selection.
+        hideTimer = setTimeout(() => setTouchSelection(null), 500);
+      }
+    };
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => {
+      document.removeEventListener("selectionchange", onSelectionChange);
+      clearTimeout(hideTimer);
+    };
+  }, []);
+
+  const commentOnTouchSelection = () => {
+    const selected = touchSelection ?? recentSelectionRef.current;
+    if (!selected) return;
+    const content = scenes.find((s) => s.id === selected.sceneId)?.content || "";
+    const [from, to] = anchorRange(content, selected.text);
+    handleStartComment(selected.sceneId, selected.text, from, to);
+    setTouchSelection(null);
+    window.getSelection()?.removeAllRanges();
+  };
+
   if (!chapter) return null;
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto">
+      {!canHover && touchSelection && (
+        // Bottom of the screen, clear of the phone's own copy/paste menu, which
+        // appears above the selection. mousedown is cancelled so a tap does not
+        // collapse the selection before the comment takes it.
+        <button
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={commentOnTouchSelection}
+          className="fixed left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 whitespace-nowrap px-5 py-3 rounded-full bg-tc-accent text-tc-primary text-sm font-medium shadow-lg shadow-tc-accent"
+          style={{ bottom: "calc(1.5rem + env(safe-area-inset-bottom))" }}
+        >
+          <MessageSquareQuote size={16} />
+          Comment on selection
+        </button>
+      )}
       <Link
         to={`/work/${id}`}
         className="inline-flex items-center gap-2 text-tc-tertiary hover:text-tc-secondary mb-6 text-sm"
@@ -1174,6 +1272,7 @@ export default function ChapterView() {
                   activeCommentId={activeCommentId}
                   onCommentClick={handleCommentClick}
                   onStartComment={handleStartComment}
+                  recentSelection={getRecentSelection}
                   pollyEnabled={pollyEnabled}
                 />
                 {!isMatter && (
