@@ -1,3 +1,4 @@
+import ImageLightbox from "@/components/ImageLightbox";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Plus, BookOpen, Layers, Eye, ImageIcon } from "lucide-react";
@@ -233,19 +234,7 @@ export default function Library() {
         </section>
       )}
 
-      {previewImage && (
-        <div
-          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
-          onClick={() => setPreviewImage(null)}
-        >
-          <img
-            src={previewImage}
-            alt=""
-            className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
+      {previewImage && <ImageLightbox src={previewImage} onClose={() => setPreviewImage(null)} />}
 
       {series.length === 0 && works.length === 0 && (
         <div className="text-center py-16 text-tc-muted">

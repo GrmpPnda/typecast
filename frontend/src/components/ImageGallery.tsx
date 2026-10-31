@@ -1,3 +1,4 @@
+import ImageLightbox from "./ImageLightbox";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useRef } from "react";
 import {
@@ -35,6 +36,8 @@ function ImageCard({
     },
   });
 
+  const [previewing, setPreviewing] = useState(false);
+
   const handleCopy = () => {
     onCopyMarkdown(image);
     setCopied(true);
@@ -43,13 +46,25 @@ function ImageCard({
 
   return (
     <div className="relative group bg-tc-overlay rounded-lg border border-tc-subtle/50 overflow-hidden">
-      <div className="aspect-square overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setPreviewing(true)}
+        className="block w-full aspect-square overflow-hidden cursor-zoom-in"
+        aria-label={`View ${image.original_name}`}
+      >
         <img
           src={image.url}
           alt={image.alt_text || image.original_name}
           className="w-full h-full object-cover"
         />
-      </div>
+      </button>
+      {previewing && (
+        <ImageLightbox
+          src={image.url}
+          alt={image.alt_text || image.original_name}
+          onClose={() => setPreviewing(false)}
+        />
+      )}
       <div className="p-2">
         <p className="text-xs text-tc-tertiary truncate" title={image.original_name}>
           {image.original_name}
@@ -180,7 +195,7 @@ export default function ImageGallery({
               e.target.value = "";
             }}
           />
-          <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-3 mb-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 mb-3">
             {images.map((img) => (
               <ImageCard
                 key={img.id}
