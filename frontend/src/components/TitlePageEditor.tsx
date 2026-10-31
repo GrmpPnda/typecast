@@ -432,7 +432,7 @@ export default function TitlePageEditor({
       </p>
 
       <div className="grid gap-4">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="block text-sm text-tc-tertiary mb-1">Title</label>
             <input
@@ -457,7 +457,7 @@ export default function TitlePageEditor({
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="block text-sm text-tc-tertiary mb-1">
               Title Font Size
@@ -481,7 +481,7 @@ export default function TitlePageEditor({
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="block text-sm text-tc-tertiary mb-1">
               Author Font

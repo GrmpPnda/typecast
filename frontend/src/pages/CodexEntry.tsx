@@ -213,7 +213,7 @@ export default function CodexEntryPage() {
             <select
               value={voiceId || ""}
               onChange={(e) => setVoiceId(e.target.value || null)}
-              className="flex-1 bg-tc-overlay border border-tc-subtle rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-tc-accent"
+              className="flex-1 min-w-0 bg-tc-overlay border border-tc-subtle rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-tc-accent"
             >
               <option value="">None (use narrator voice)</option>
               {voices.map((v) => (
@@ -254,7 +254,7 @@ export default function CodexEntryPage() {
               ) : (
                 <button
                   onClick={handleEditContent}
-                  className="p-1.5 text-tc-muted hover:text-tc-secondary opacity-0 group-hover:opacity-100 rounded transition-all"
+                  className="p-1.5 text-tc-muted hover:text-tc-secondary opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 rounded transition-all"
                   title="Edit content"
                 >
                   <PenLine size={14} />
@@ -334,7 +334,7 @@ export default function CodexEntryPage() {
                     </span>
                   )}
                   <div
-                    className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center gap-2 pb-10 cursor-pointer"
+                    className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center gap-2 pb-10 cursor-pointer [@media(hover:none)]:opacity-100 [@media(hover:none)]:bg-transparent"
                     onClick={() => setViewImage(img)}
                   >
                     {!img.is_primary && (

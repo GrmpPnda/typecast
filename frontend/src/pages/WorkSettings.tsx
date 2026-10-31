@@ -221,7 +221,7 @@ export default function WorkSettings() {
         {allSeries.length > 0 && (
           <section className="bg-tc-overlay/50 border border-tc-subtle rounded-lg p-6">
             <h2 className="text-lg font-semibold mb-4">Series</h2>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm text-tc-tertiary mb-1">Series</label>
                 <select
@@ -256,7 +256,7 @@ export default function WorkSettings() {
 
         <section className="bg-tc-overlay/50 border border-tc-subtle rounded-lg p-6">
           <h2 className="text-lg font-semibold mb-4">Publishing</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-sm text-tc-tertiary mb-1">ISBN</label>
               <input

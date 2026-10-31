@@ -351,7 +351,7 @@ function ConversationHistoryView({
                 </div>
                 <button
                   onClick={(e) => handleDelete(e, conv.id)}
-                  className="p-1 text-tc-muted hover:text-tc-error opacity-0 group-hover:opacity-100 transition-all"
+                  className="p-1 text-tc-muted hover:text-tc-error opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-all"
                 >
                   <Trash2 size={12} />
                 </button>
@@ -1124,7 +1124,7 @@ export default function AIChatPanel({ workId, chapterId, sceneId, onClose }: AIC
                 />
                 <button
                   onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))}
-                  className="absolute -top-1.5 -right-1.5 p-0.5 bg-tc-overlay border border-tc-subtle rounded-full text-tc-tertiary hover:text-tc-error opacity-0 group-hover:opacity-100 transition-all"
+                  className="absolute -top-1.5 -right-1.5 p-0.5 bg-tc-overlay border border-tc-subtle rounded-full text-tc-tertiary hover:text-tc-error opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-all"
                 >
                   <X size={10} />
                 </button>

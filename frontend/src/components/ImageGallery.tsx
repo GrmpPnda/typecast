@@ -96,7 +96,7 @@ function ImageCard({
           </p>
         )}
       </div>
-      <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
         <button
           onClick={handleCopy}
           className="p-1.5 bg-tc-base/80 rounded text-tc-secondary hover:text-tc-primary transition-colors"

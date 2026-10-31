@@ -149,7 +149,7 @@ function ExportProfileDetails({ profile: p }: { profile: Profile }) {
         Profile details
       </button>
       {open && (
-        <div className="mt-2 p-3 bg-tc-hover/40 rounded border border-tc-subtle/50 grid gap-x-6 gap-y-0 sm:grid-cols-2 text-xs">
+        <div className="mt-2 p-3 bg-tc-hover/40 rounded border border-tc-subtle/50 grid grid-cols-1 gap-x-6 gap-y-0 sm:grid-cols-2 text-xs">
           <div>
             <span className="text-tc-muted">Font:</span>{" "}
             <span className="text-tc-secondary">{p.font_family}</span>
@@ -533,7 +533,7 @@ export default function WorkDetail() {
                 onClick={() => setShowCoverPreview(true)}
                 className="w-32 h-48 object-cover rounded-lg shadow-lg cursor-pointer"
               />
-              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-2">
+              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-2 pointer-events-none [&>*]:pointer-events-auto [@media(hover:none)]:opacity-100 [@media(hover:none)]:bg-transparent [@media(hover:none)]:items-end [@media(hover:none)]:pb-2">
                 <button
                   onClick={(e) => { e.stopPropagation(); setShowCoverPicker(true); }}
                   className="p-2 bg-tc-hover rounded-full text-tc-secondary hover:bg-tc-active transition-colors"
@@ -651,7 +651,7 @@ export default function WorkDetail() {
               <X size={16} />
             </button>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-xs text-tc-tertiary mb-1.5">Format</label>
               <select
@@ -729,7 +729,7 @@ export default function WorkDetail() {
             </label>
           )}
           {driveStatus?.connected && (
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label className="block text-xs text-tc-tertiary mb-1.5">
                   Drive folder
@@ -864,7 +864,7 @@ export default function WorkDetail() {
                 <BookOpen size={14} className="text-tc-muted" />
                 <span className="text-tc-secondary">{ch.title}</span>
               </div>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-all">
                 <button
                   onClick={(e) => { e.stopPropagation(); moveMatterChapter(frontMatterChapters, idx, -1); }}
                   disabled={idx === 0 || reorderMutation.isPending}
@@ -905,7 +905,7 @@ export default function WorkDetail() {
               </div>
               <button
                 onClick={(e) => { e.preventDefault(); deleteSectionMutation.mutate(s.id); }}
-                className="text-tc-muted hover:text-tc-error opacity-0 group-hover:opacity-100 transition-all"
+                className="text-tc-muted hover:text-tc-error opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-all"
               >
                 <Trash2 size={14} />
               </button>
@@ -975,7 +975,7 @@ export default function WorkDetail() {
                 </h3>
               </Link>
               <div className="flex items-center gap-1">
-                <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-all">
+                <div className="flex flex-col opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-all">
                   <button
                     onClick={() => {
                       const fullIndex = chapters.indexOf(chapter);
@@ -1003,7 +1003,7 @@ export default function WorkDetail() {
                       deleteChapterMutation.mutate(chapter.id);
                     }
                   }}
-                  className="text-tc-muted hover:text-tc-error opacity-0 group-hover:opacity-100 transition-all"
+                  className="text-tc-muted hover:text-tc-error opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-all"
                 >
                   <Trash2 size={16} />
                 </button>
@@ -1059,7 +1059,7 @@ export default function WorkDetail() {
                 <BookOpen size={14} className="text-tc-muted" />
                 <span className="text-tc-secondary">{ch.title}</span>
               </div>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-all">
                 <button
                   onClick={(e) => { e.stopPropagation(); moveMatterChapter(backMatterChapters, idx, -1); }}
                   disabled={idx === 0 || reorderMutation.isPending}
@@ -1100,7 +1100,7 @@ export default function WorkDetail() {
               </div>
               <button
                 onClick={(e) => { e.preventDefault(); deleteSectionMutation.mutate(s.id); }}
-                className="text-tc-muted hover:text-tc-error opacity-0 group-hover:opacity-100 transition-all"
+                className="text-tc-muted hover:text-tc-error opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-all"
               >
                 <Trash2 size={14} />
               </button>

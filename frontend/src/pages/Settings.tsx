@@ -240,7 +240,7 @@ function DetailRow({ label, value }: { label: string; value: string | number | b
 function ProfileDetails({ profile }: { profile: Profile }) {
   const isPdf = profile.format === "pdf";
   return (
-    <div className="mt-3 pt-3 border-t border-tc-subtle/50 grid gap-x-8 gap-y-0 sm:grid-cols-2">
+    <div className="mt-3 pt-3 border-t border-tc-subtle/50 grid grid-cols-1 gap-x-8 gap-y-0 sm:grid-cols-2">
       <div>
         <p className="text-xs font-semibold text-tc-muted uppercase tracking-wide mb-1">Typography</p>
         <DetailRow label="Font Family" value={profile.font_family} />
@@ -353,7 +353,7 @@ function ProfileForm({
 
   return (
     <div className="p-5 bg-tc-overlay/50 border border-tc-subtle rounded-lg space-y-4">
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <label className="block text-xs text-tc-tertiary mb-1">Name</label>
           <input
@@ -395,14 +395,14 @@ function ProfileForm({
           <h3 className="text-xs font-semibold text-tc-tertiary uppercase tracking-wide pt-2">
             Page Dimensions
           </h3>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <DimensionInput label="Page Width" value={form.page_width} onChange={(v) => update({ page_width: v })} placeholder="6" />
             <DimensionInput label="Page Height" value={form.page_height} onChange={(v) => update({ page_height: v })} placeholder="9" />
           </div>
           <h3 className="text-xs font-semibold text-tc-tertiary uppercase tracking-wide pt-2">
             Margins
           </h3>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <DimensionInput label="Top" value={form.margin_top} onChange={(v) => update({ margin_top: v })} placeholder="0.75" />
             <DimensionInput label="Bottom" value={form.margin_bottom} onChange={(v) => update({ margin_bottom: v })} placeholder="0.75" />
             <DimensionInput label="Inner (spine)" value={form.margin_inner} onChange={(v) => update({ margin_inner: v })} placeholder="0.875" />
@@ -414,7 +414,7 @@ function ProfileForm({
       <h3 className="text-xs font-semibold text-tc-tertiary uppercase tracking-wide pt-2">
         Typography
       </h3>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <label className="block text-xs text-tc-tertiary mb-1">Font Family</label>
           <FontSelect
@@ -496,7 +496,7 @@ function ProfileForm({
           <h3 className="text-xs font-semibold text-tc-tertiary uppercase tracking-wide pt-2">
             Headers
           </h3>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <label className="block text-xs text-tc-tertiary mb-1">Recto (right pages)</label>
               <select
@@ -544,7 +544,7 @@ function ProfileForm({
           <h3 className="text-xs font-semibold text-tc-tertiary uppercase tracking-wide pt-2">
             Footers
           </h3>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <label className="block text-xs text-tc-tertiary mb-1">Recto (right pages)</label>
               <select
@@ -592,7 +592,7 @@ function ProfileForm({
           <h3 className="text-xs font-semibold text-tc-tertiary uppercase tracking-wide pt-2">
             Header / Footer Typeface
           </h3>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <label className="block text-xs text-tc-tertiary mb-1">Font</label>
               <div className="flex gap-1 items-center">
@@ -673,7 +673,7 @@ function ProfileForm({
           <h3 className="text-xs font-semibold text-tc-tertiary uppercase tracking-wide pt-2">
             Chapter Headings
           </h3>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <label className="block text-xs text-tc-tertiary mb-1">Font Family</label>
               <div className="flex gap-1 items-center">
@@ -857,7 +857,7 @@ function FontsSection() {
                     deleteMutation.mutate(f.id);
                   }
                 }}
-                className="p-1.5 text-tc-muted hover:text-tc-error rounded transition-colors opacity-0 group-hover:opacity-100"
+                className="p-1.5 text-tc-muted hover:text-tc-error rounded transition-colors opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                 title="Delete font"
               >
                 <Trash2 size={14} />
@@ -1060,7 +1060,7 @@ function AIConfigSection() {
           </select>
         </div>
 
-        <div className="grid gap-5 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
           <div className="space-y-3">
             <h3 className="text-xs font-semibold text-tc-muted uppercase tracking-wide">Anthropic</h3>
             <div>
@@ -1131,7 +1131,7 @@ function AIConfigSection() {
             </label>
           </div>
           {bedrockEnabled ? (
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label className="block text-xs text-tc-tertiary mb-1">Region</label>
                 <select
@@ -1160,7 +1160,7 @@ function AIConfigSection() {
                   <select
                     value={bedrockModelId}
                     onChange={(e) => upd(setBedrockModelId)(e.target.value)}
-                    className="flex-1 bg-tc-hover border border-tc-strong rounded px-3 py-2 text-sm focus:border-tc-accent focus:outline-none"
+                    className="flex-1 min-w-0 bg-tc-hover border border-tc-strong rounded px-3 py-2 text-sm focus:border-tc-accent focus:outline-none"
                   >
                     {bedrockModels.map((m) => (
                       <option key={m.id} value={m.id}>{m.label}</option>
@@ -1211,7 +1211,7 @@ function AIConfigSection() {
           <h3 className="text-xs font-semibold text-tc-muted uppercase tracking-wide mb-3">
             Image Generation
           </h3>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className="block text-xs text-tc-tertiary mb-1">Image Provider</label>
               <select
@@ -1263,7 +1263,7 @@ function AIConfigSection() {
                   <select
                     value={imageModel}
                     onChange={(e) => upd(setImageModel)(e.target.value)}
-                    className="flex-1 bg-tc-hover border border-tc-strong rounded px-3 py-2 text-sm focus:border-tc-accent focus:outline-none"
+                    className="flex-1 min-w-0 bg-tc-hover border border-tc-strong rounded px-3 py-2 text-sm focus:border-tc-accent focus:outline-none"
                   >
                     <option value="">Default (Nova Canvas)</option>
                     {bedrockImageModels.map((m) => (
@@ -1410,7 +1410,7 @@ function NarrationConfigSection() {
         </label>
 
         {enabled && (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-xs text-tc-tertiary mb-1">Region</label>
               <select
@@ -1697,7 +1697,7 @@ export default function Settings() {
                       <div className="flex items-center gap-2">
                         <span
                           onClick={(e) => { e.stopPropagation(); handleDuplicate(p); }}
-                          className="p-1.5 text-tc-muted hover:text-tc-secondary rounded transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
+                          className="p-1.5 text-tc-muted hover:text-tc-secondary rounded transition-colors opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 cursor-pointer"
                           title="Duplicate as custom profile"
                         >
                           <Copy size={14} />
@@ -1754,7 +1754,7 @@ export default function Settings() {
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-all">
                     <button
                       onClick={() => handleDuplicate(p)}
                       className="p-1.5 text-tc-muted hover:text-tc-secondary rounded transition-colors"
@@ -2213,7 +2213,7 @@ function UsersSection() {
                     </span>
                   </td>
                   <td className="py-3">
-                    <div className="flex items-center justify-end gap-2">
+                    <div className="flex flex-wrap items-center justify-end gap-2">
                       <button
                         onClick={() =>
                           patchMutation.mutate({ id: u.id, updates: { is_admin: !u.is_admin } })
@@ -2378,7 +2378,7 @@ function GoogleDriveSection() {
 
         {status?.error && <p className="text-sm text-tc-error">{status.error}</p>}
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="block text-sm text-tc-secondary mb-1.5">Client ID</label>
             <input

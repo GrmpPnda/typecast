@@ -172,7 +172,7 @@ export default function SeriesDetail() {
             </div>
           </div>
         )}
-        <div className="absolute top-3 right-3 z-20 flex items-center gap-1.5 opacity-0 group-hover/banner:opacity-100 transition-opacity">
+        <div className="absolute top-3 right-3 z-20 flex items-center gap-1.5 opacity-0 group-hover/banner:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
           <button
             onClick={() => setShowBannerPicker(true)}
             className="p-1.5 bg-tc-base/80 hover:bg-tc-overlay rounded text-tc-secondary hover:text-tc-primary transition-colors"

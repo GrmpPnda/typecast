@@ -184,7 +184,7 @@ export default function CoverProduction() {
 
       <h1 className="text-2xl font-bold mb-6">Cover Production</h1>
 
-      <div className="grid lg:grid-cols-[400px_1fr] gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-8">
         {/* Controls Panel */}
         <div className="space-y-6">
           {/* Trim Size */}
@@ -583,7 +583,7 @@ export default function CoverProduction() {
                 />
                 {dims && <CoverOverlay dims={dims} />}
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors rounded flex items-center justify-center">
-                  <span className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-black/60 text-tc-secondary px-2 py-1 rounded">
+                  <span className="opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity text-xs bg-black/60 text-tc-secondary px-2 py-1 rounded">
                     Click to enlarge
                   </span>
                 </div>

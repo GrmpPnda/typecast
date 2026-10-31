@@ -238,7 +238,7 @@ export default function Gallery() {
                   </div>
                 )}
                 {/* Info overlay */}
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
                   <p className="text-[10px] text-white truncate">{item.original_name}</p>
                   <p className="text-[9px] text-white/70">
                     {item.width && item.height ? `${item.width}×${item.height}` : ""} {formatBytes(item.size_bytes)}

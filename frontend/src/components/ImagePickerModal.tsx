@@ -116,7 +116,7 @@ export default function ImagePickerModal({
               >
                 <img src={img.url} alt={img.alt_text || ""} className="w-full h-full object-cover" />
                 {(img.alt_text || img.original_name) && (
-                  <div className="absolute inset-x-0 bottom-0 bg-black/70 px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="absolute inset-x-0 bottom-0 bg-black/70 px-1 py-0.5 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
                     <span className="text-[9px] text-tc-secondary truncate block">
                       {img.alt_text || img.original_name}
                     </span>
