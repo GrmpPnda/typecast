@@ -1,5 +1,6 @@
 import { LogIn, LogOut, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/auth";
+import TypedLogo from "./TypedLogo";
 
 /**
  * Shown under single sign-on when the proxy has signed someone in but the app
@@ -13,7 +14,7 @@ export default function SingleSignOnGate() {
   return (
     <div className="min-h-screen bg-tc-page flex items-center justify-center px-4">
       <div className="w-full max-w-sm text-center">
-        <h1 className="text-2xl font-bold mb-6 text-tc-primary">Typecast</h1>
+        <h1 className="text-3xl font-bold mb-6 text-tc-primary"><TypedLogo /></h1>
         {accessDenied ? (
           <>
             <div className="flex items-center justify-center gap-2 mb-3 text-tc-secondary">

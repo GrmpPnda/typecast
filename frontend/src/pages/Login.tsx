@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/auth";
 import ProviderButtons from "@/components/ProviderButtons";
+import TypedLogo from "../components/TypedLogo";
 
 export default function Login() {
   const { login, completeSso, providers, setupRequired, loading, user, authMode } = useAuth();
@@ -60,7 +61,7 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-tc-page flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-bold text-center mb-8 text-tc-primary">Typecast</h1>
+        <h1 className="text-3xl font-bold text-center mb-8 text-tc-primary"><TypedLogo /></h1>
         {providers.length > 0 && (
           <div className="mb-6 space-y-4">
             <ProviderButtons providers={providers} />

@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "./auth";
 import { ThemeProvider } from "./theme";
 import { router } from "./router";
+import "@fontsource/courier-prime/400.css";
+import "@fontsource/courier-prime/700.css";
 import "./index.css";
 
 const queryClient = new QueryClient({

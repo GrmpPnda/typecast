@@ -9,6 +9,7 @@ import WorkNav from "./components/WorkNav";
 import AIChatPanel from "./components/AIChatPanel";
 import CommentsSidebar from "./components/CommentsSidebar";
 import { useAuth } from "./auth";
+import TypedLogo from "./components/TypedLogo";
 
 export interface PendingComment {
   sceneId: string;
@@ -153,7 +154,7 @@ export default function App() {
             >
               <Menu size={20} />
             </button>
-            <span className="flex-1 text-base font-bold tracking-tight text-tc-primary">Typecast</span>
+            <span className="flex-1 text-lg font-bold text-tc-primary"><TypedLogo /></span>
             {/* In the bar rather than floating, where they covered the text being read or edited. */}
             {chapterId && (
               <button

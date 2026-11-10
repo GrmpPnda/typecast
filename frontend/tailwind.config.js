@@ -3,6 +3,10 @@ export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {
+      fontFamily: {
+        // Typewriter serif for the wordmark; self-hosted via @fontsource/courier-prime.
+        logo: ['"Courier Prime"', '"Courier New"', "Courier", "monospace"],
+      },
       colors: {
         tc: {
           page: "rgb(var(--tc-bg-page-rgb) / <alpha-value>)",

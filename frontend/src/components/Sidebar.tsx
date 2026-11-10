@@ -3,6 +3,7 @@ import { Library, BookOpen, FileUp, SlidersHorizontal, PanelLeftClose, PanelLeft
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/auth";
 import { useTheme } from "@/theme";
+import TypedLogo from "./TypedLogo";
 
 const navItems = [
   { to: "/", icon: Library, label: "Library" },
@@ -47,8 +48,8 @@ export default function Sidebar({ collapsed, onToggle, inDrawer = false }: Sideb
     >
       <div className="p-4 border-b border-tc-default flex items-center justify-between min-h-[57px]">
         {!collapsed && (
-          <Link to="/" className="text-xl font-bold tracking-tight text-tc-primary hover:text-tc-primary transition-colors">
-            Typecast
+          <Link to="/" className="text-xl font-bold text-tc-primary hover:text-tc-primary transition-colors">
+            <TypedLogo />
           </Link>
         )}
         <button

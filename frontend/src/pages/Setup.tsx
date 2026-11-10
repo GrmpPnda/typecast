@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { Shield } from "lucide-react";
 import { useAuth } from "@/auth";
 import ProviderButtons from "@/components/ProviderButtons";
+import TypedLogo from "../components/TypedLogo";
 
 /**
  * First-run setup: creates the administrator on a deployment with no accounts.
@@ -72,7 +73,7 @@ export default function Setup() {
   return (
     <div className="min-h-screen bg-tc-page flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-bold text-center text-tc-primary">Typecast</h1>
+        <h1 className="text-3xl font-bold text-center text-tc-primary"><TypedLogo /></h1>
         <div className="flex items-center justify-center gap-2 mt-3 mb-2">
           <Shield size={14} className="text-tc-accent" />
           <p className="text-sm text-tc-secondary">Create your administrator account</p>
