@@ -217,6 +217,43 @@ async def export_rows(conn: AsyncConnection) -> dict[str, list[dict]]:
 # --- decoding and validation ---------------------------------------------------
 
 
+# Font family values the picker used to save, and what they mean. Archives taken
+# before migration e7b3f19a4c2d still carry the old form, so loading one would
+# undo that migration without this.
+_FONT_FAMILY_UPGRADES = (("'sans serif'", "sans-serif"),)
+_FONT_COLUMNS = {
+    "profiles": ("font_family", "chapter_font_family", "header_font_family"),
+    "works": ("title_page_config",),
+}
+
+
+def _upgrade_font(value: Any) -> Any:
+    if isinstance(value, str):
+        for old, new in _FONT_FAMILY_UPGRADES:
+            value = value.replace(old, new)
+        return value
+    if isinstance(value, dict):
+        return {k: _upgrade_font(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_upgrade_font(v) for v in value]
+    return value
+
+
+def _upgrade_font_families(table: str, rows: list[dict]) -> None:
+    """Rewrite font families saved in a form that browsers misread (in place)."""
+    columns = _FONT_COLUMNS.get(table, ())
+    changed = 0
+    for row in rows:
+        for column in columns:
+            if column in row:
+                new = _upgrade_font(row[column])
+                if new != row[column]:
+                    row[column] = new
+                    changed += 1
+    if changed:
+        logger.info("Upgraded %d legacy font family value(s) in %s", changed, table)
+
+
 def decode_rows(
     data: dict[str, list[dict]], summary: LoadSummary
 ) -> dict[str, list[dict]]:
@@ -251,6 +288,7 @@ def decode_rows(
             )
         for name in sorted(dropped):
             summary.dropped_columns.append(f"{table.name}.{name}")
+        _upgrade_font_families(table.name, out)
         decoded[table.name] = out
     if summary.dropped_columns:
         logger.warning("Archive columns not in this schema: %s", summary.dropped_columns)

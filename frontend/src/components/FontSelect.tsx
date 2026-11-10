@@ -15,9 +15,9 @@ export const FONT_OPTIONS = [
   { label: "Source Serif", value: "'Source Serif 4', 'Source Serif Pro', serif" },
   { label: "Literata", value: "Literata, serif" },
   { label: "Noto Serif", value: "'Noto Serif', serif" },
-  { label: "Arial", value: "Arial, 'sans serif'" },
-  { label: "Helvetica", value: "Helvetica, 'sans serif'" },
-  { label: "Verdana", value: "Verdana, 'sans serif'" },
+  { label: "Arial", value: "Arial, sans-serif" },
+  { label: "Helvetica", value: "Helvetica, sans-serif" },
+  { label: "Verdana", value: "Verdana, sans-serif" },
 ];
 
 export function parseFontSize(raw: string): { num: number; unit: "pt" | "em" } {
